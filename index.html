@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Pasadena School Locator (Address + Nearest)</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <style>
+    body { font-family: Arial; }
+
+    #map {
+      height: 500px;
+      margin-top: 10px;
+    }
+
+    #box {
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      width: 480px;
+      background: #f9f9f9;
+    }
+
+    input, select, button {
+      margin: 5px 0;
+      padding: 7px;
+      width: 300px;
+    }
+  </style>
+</head>
+
+<body>
+
+<h2>Pasadena School Locator</h2>
+
+<!-- ✅ ADDRESS SEARCH BOX (THIS WAS MISSING BEFORE) -->
+<input id="address" placeholder="Enter address (Pasadena area)" />
+
+<br>
+
+<select id="level">
+  <option value="High">High School</option>
+  <option value="Middle">Middle School</option>
+  <option value="Elementary">Elementary School</option>
+</select>
+
+<br>
+
+<button onclick="findNearestSchool()">Find Nearest School</button>
+
+<div id="box">Enter an address to begin</div>
+
+<div id="map"></div>
+
+<script>
+
+// ---------------- MAP ----------------
+const map = L.map("map").setView([34.1478, -118.1445], 12);
+
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19
+}).addTo(map);
+
+let userMarker;
+let schoolMarker;
+
+// ---------------- REAL PASADENA SCHOOL DATA ----------------
+const schools = [
+
+  // HIGH
+  { name: "Pasadena High School", lat: 34.16414, lng: -118.09323, level: "High" },
+  { name: "John Muir High School", lat: 34.17931, lng: -118.16101, level: "High" },
+  { name: "Blair High School", lat: 34.12908, lng: -118.14598, level: "High" },
+
+  // MIDDLE
+  { name: "Octavia Butler Middle School", lat: 34.1603, lng: -118.1504, level: "Middle" },
+  { name: "Eliot Arts Magnet", lat: 34.1457, lng: -118.1551, level: "Middle" },
+  { name: "Washington Middle School", lat: 34.1384, lng: -118.1401, level: "Middle" },
+
+  // ELEMENTARY
+  { name: "Madison Elementary School", lat: 34.1551, lng: -118.1356, level: "Elementary" },
+  { name: "McKinley School", lat: 34.1473, lng: -118.1309, level: "Elementary" },
+  { name: "Longfellow Elementary School", lat: 34.1621, lng: -118.1552, level: "Elementary" }
+];
+
+// ---------------- GEOCODE ADDRESS ----------------
+async function geocode(address) {
+
+  const res = await fetch(
+    "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" +
+    encodeURIComponent(address)
+  );
+
+  return await res.json();
+}
+
+// ---------------- DISTANCE ----------------
+function getDistance(a, b) {
+  return map.distance(a, b);
+}
+
+// ---------------- FIND NEAREST ----------------
+function findNearest(lat, lng, level) {
+
+  let nearest = null;
+  let minDist = Infinity;
+
+  for (let s of schools) {
+
+    if (s.level !== level) continue;
+
+    const dist = getDistance([lat, lng], [s.lat, s.lng]);
+
+    if (dist < minDist) {
+      minDist = dist;
+      nearest = s;
+    }
+  }
+
+  return { nearest, minDist };
+}
+
+// ---------------- MAIN FUNCTION ----------------
+async function findNearestSchool() {
+
+  const address = document.getElementById("address").value;
+  const level = document.getElementById("level").value;
+
+  if (!address) {
+    alert("Please enter an address");
+    return;
+  }
+
+  const geo = await geocode(address);
+
+  if (!geo.length) {
+    alert("Address not found");
+    return;
+  }
+
+  const lat = parseFloat(geo[0].lat);
+  const lng = parseFloat(geo[0].lon);
+
+  // USER MARKER
+  if (userMarker) map.removeLayer(userMarker);
+
+  userMarker = L.marker([lat, lng])
+    .addTo(map)
+    .bindPopup("Search Location")
+    .openPopup();
+
+  map.setView([lat, lng], 13);
+
+  // FIND NEAREST
+  const result = findNearest(lat, lng, level);
+
+  if (!result.nearest) {
+    document.getElementById("box").innerHTML =
+      "No schools found for selected level";
+    return;
+  }
+
+  // SCHOOL MARKER
+  if (schoolMarker) map.removeLayer(schoolMarker);
+
+  schoolMarker = L.marker([result.nearest.lat, result.nearest.lng])
+    .addTo(map)
+    .bindPopup(result.nearest.name)
+    .openPopup();
+
+  const miles = (result.minDist * 0.000621371).toFixed(2);
+
+  document.getElementById("box").innerHTML =
+    "<b>Nearest School:</b> " + result.nearest.name + "<br>" +
+    "<b>Level:</b> " + result.nearest.level + "<br>" +
+    "<b>Distance:</b> " + miles + " miles";
+}
+
+</script>
+
+</body>
+</html>
