@@ -2,40 +2,46 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Pasadena School Locator (Address + Nearest)</title>
+  <title>School Locator (Pasadena Simple Zoning)</title>
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
   <style>
-    body { font-family: Arial; }
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
 
     #map {
       height: 500px;
-      margin-top: 10px;
+      margin-top: 15px;
     }
 
     #box {
       margin-top: 10px;
-      padding: 10px;
+      padding: 12px;
       border: 1px solid #ccc;
-      width: 480px;
+      width: 520px;
       background: #f9f9f9;
     }
 
     input, select, button {
+      padding: 8px;
       margin: 5px 0;
-      padding: 7px;
-      width: 300px;
+      width: 320px;
+    }
+
+    button {
+      cursor: pointer;
     }
   </style>
 </head>
 
 <body>
 
-<h2>Pasadena School Locator</h2>
+<h2>Pasadena School Locator (Simple Zoning System)</h2>
 
-<!-- ✅ ADDRESS SEARCH BOX (THIS WAS MISSING BEFORE) -->
 <input id="address" placeholder="Enter address (Pasadena area)" />
 
 <br>
@@ -48,7 +54,7 @@
 
 <br>
 
-<button onclick="findNearestSchool()">Find Nearest School</button>
+<button onclick="findSchool()">Find Nearest School</button>
 
 <div id="box">Enter an address to begin</div>
 
@@ -66,33 +72,41 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 let userMarker;
 let schoolMarker;
 
-// ---------------- REAL PASADENA SCHOOL DATA ----------------
+// ---------------- SIMPLE DISTRICT BOUNDARY (EDITABLE) ----------------
+const districtBoundary = [
+  [34.2000, -118.2000],
+  [34.2000, -118.0800],
+  [34.1200, -118.0800],
+  [34.1200, -118.2000]
+];
+
+// draw boundary
+L.polygon(districtBoundary, {
+  color: "blue",
+  fillOpacity: 0.1
+}).addTo(map);
+
+// ---------------- SCHOOL DATA ----------------
 const schools = [
+  { name: "Pasadena High School", lat: 34.16485, lng: -118.09323, level: "High" },
+  { name: "John Muir High School", lat: 34.17952, lng: -118.16076, level: "High" },
+  { name: "Blair High School", lat: 34.12994, lng: -118.14598, level: "High" },
 
-  // HIGH
-  { name: "Pasadena High School", lat: 34.16414, lng: -118.09323, level: "High" },
-  { name: "John Muir High School", lat: 34.17931, lng: -118.16101, level: "High" },
-  { name: "Blair High School", lat: 34.12908, lng: -118.14598, level: "High" },
-
-  // MIDDLE
   { name: "Octavia Butler Middle School", lat: 34.1603, lng: -118.1504, level: "Middle" },
   { name: "Eliot Arts Magnet", lat: 34.1457, lng: -118.1551, level: "Middle" },
   { name: "Washington Middle School", lat: 34.1384, lng: -118.1401, level: "Middle" },
 
-  // ELEMENTARY
   { name: "Madison Elementary School", lat: 34.1551, lng: -118.1356, level: "Elementary" },
   { name: "McKinley School", lat: 34.1473, lng: -118.1309, level: "Elementary" },
   { name: "Longfellow Elementary School", lat: 34.1621, lng: -118.1552, level: "Elementary" }
 ];
 
-// ---------------- GEOCODE ADDRESS ----------------
+// ---------------- GEOLOCATION ----------------
 async function geocode(address) {
-
   const res = await fetch(
     "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" +
     encodeURIComponent(address)
   );
-
   return await res.json();
 }
 
@@ -101,17 +115,35 @@ function getDistance(a, b) {
   return map.distance(a, b);
 }
 
-// ---------------- FIND NEAREST ----------------
+// ---------------- POINT IN POLYGON ----------------
+function pointInPolygon(point, polygon) {
+  let x = point[0], y = point[1];
+  let inside = false;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    let xi = polygon[i][0], yi = polygon[i][1];
+    let xj = polygon[j][0], yj = polygon[j][1];
+
+    let intersect =
+      ((yi > y) !== (yj > y)) &&
+      (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+
+    if (intersect) inside = !inside;
+  }
+
+  return inside;
+}
+
+// ---------------- FIND NEAREST SCHOOL ----------------
 function findNearest(lat, lng, level) {
 
   let nearest = null;
   let minDist = Infinity;
 
   for (let s of schools) {
-
     if (s.level !== level) continue;
 
-    const dist = getDistance([lat, lng], [s.lat, s.lng]);
+    let dist = getDistance([lat, lng], [s.lat, s.lng]);
 
     if (dist < minDist) {
       minDist = dist;
@@ -123,7 +155,7 @@ function findNearest(lat, lng, level) {
 }
 
 // ---------------- MAIN FUNCTION ----------------
-async function findNearestSchool() {
+async function findSchool() {
 
   const address = document.getElementById("address").value;
   const level = document.getElementById("level").value;
@@ -143,26 +175,24 @@ async function findNearestSchool() {
   const lat = parseFloat(geo[0].lat);
   const lng = parseFloat(geo[0].lon);
 
-  // USER MARKER
+  // user marker
   if (userMarker) map.removeLayer(userMarker);
 
-  userMarker = L.marker([lat, lng])
-    .addTo(map)
-    .bindPopup("Search Location")
-    .openPopup();
-
+  userMarker = L.marker([lat, lng]).addTo(map);
   map.setView([lat, lng], 13);
 
-  // FIND NEAREST
-  const result = findNearest(lat, lng, level);
+  // 🧭 CHECK DISTRICT
+  if (!pointInPolygon([lat, lng], districtBoundary)) {
 
-  if (!result.nearest) {
     document.getElementById("box").innerHTML =
-      "No schools found for selected level";
+      "<b>❌ Not Included in District</b>";
+
     return;
   }
 
-  // SCHOOL MARKER
+  // find school
+  const result = findNearest(lat, lng, level);
+
   if (schoolMarker) map.removeLayer(schoolMarker);
 
   schoolMarker = L.marker([result.nearest.lat, result.nearest.lng])
