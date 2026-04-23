@@ -19,8 +19,7 @@
 
 <h2>Pasadena Zoned School Locator</h2>
 
-<input id="address" placeholder="Enter address (Pasadena)" />
-
+<input id="address" placeholder="Enter address" />
 <br>
 
 <select id="level">
@@ -47,14 +46,10 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 
 let userMarker;
 
-// ---------------- ZONE DATA ----------------
-let zones = {
-  High: [],
-  Middle: [],
-  Elementary: []
-};
+// ---------------- DATA ----------------
+let zones = { High: [], Middle: [], Elementary: [] };
 
-// Load your GeoJSON files
+// ---------------- LOAD ZONES ----------------
 async function loadZones() {
 
   const [h, m, e] = await Promise.all([
@@ -67,13 +62,12 @@ async function loadZones() {
   zones.Middle = m.features;
   zones.Elementary = e.features;
 
-  console.log("Zones loaded");
+  console.log("Zones loaded:", zones);
 }
 
 loadZones();
 
-// ---------------- RELIABLE GEOCODER ----------------
-// using Photon (more stable than Nominatim)
+// ---------------- GEOCODE (stable) ----------------
 async function geocode(address) {
 
   const url =
@@ -84,13 +78,8 @@ async function geocode(address) {
   const data = await res.json();
 
   if (data.features && data.features.length > 0) {
-
     const c = data.features[0].geometry.coordinates;
-
-    return {
-      lat: c[1],
-      lon: c[0]
-    };
+    return { lat: c[1], lon: c[0] };
   }
 
   return null;
@@ -117,34 +106,56 @@ function pointInPolygon(point, vs) {
   return inside;
 }
 
-// ---------------- FIND ZONED SCHOOL ----------------
+// ---------------- ZONING ENGINE (FIXED) ----------------
 function findZonedSchool(lat, lng, level) {
 
   const levelZones = zones[level];
 
-  if (!levelZones || levelZones.length === 0) return null;
+  if (!levelZones || levelZones.length === 0) {
+    console.log("No zones loaded for:", level);
+    return null;
+  }
 
   for (let zone of levelZones) {
 
     const geom = zone.geometry;
 
-    let polygon;
+    let polygons = [];
 
-    if (geom.type === "MultiPolygon") {
-      polygon = geom.coordinates[0][0];
-    } else {
-      polygon = geom.coordinates[0];
+    // Normalize Polygon vs MultiPolygon
+    if (geom.type === "Polygon") {
+      polygons = [geom.coordinates];
+    } else if (geom.type === "MultiPolygon") {
+      polygons = geom.coordinates;
     }
 
-    if (pointInPolygon([lng, lat], polygon)) {
-      return zone.properties.name || "Unknown School";
+    for (let poly of polygons) {
+
+      const ring = poly[0];
+
+      // SAFETY CHECK (prevents silent failures)
+      if (!ring || ring.length < 3) continue;
+
+      // IMPORTANT: GeoJSON is [lng, lat]
+      if (pointInPolygon([lng, lat], ring)) {
+
+        const props = zone.properties || {};
+
+        return (
+          props.name ||
+          props.Name ||
+          props.SCHOOL ||
+          props.school ||
+          "Unknown School"
+        );
+      }
     }
   }
 
   return null;
 }
 
-// ---------------- MAIN FUNCTION ----------------
+// ---------------- MAIN ----------------
 async function findSchool() {
 
   const address = document.getElementById("address").value;
@@ -157,15 +168,14 @@ async function findSchool() {
   const geo = await geocode(address);
 
   if (!geo) {
-    document.getElementById("box").innerHTML =
-      "❌ Address not found";
+    document.getElementById("box").innerHTML = "❌ Address not found";
     return;
   }
 
   const lat = geo.lat;
   const lng = geo.lon;
 
-  // map marker
+  // marker
   if (userMarker) map.removeLayer(userMarker);
 
   userMarker = L.marker([lat, lng])
@@ -175,12 +185,14 @@ async function findSchool() {
 
   map.setView([lat, lng], 13);
 
-  // zoning result
+  // zoning
   const school = findZonedSchool(lat, lng, level);
+
+  console.log("Result:", school);
 
   if (!school) {
     document.getElementById("box").innerHTML =
-      "❌ No zoned school found";
+      "❌ No zoned school found (check GeoJSON alignment)";
     return;
   }
 
