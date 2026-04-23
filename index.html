@@ -17,9 +17,10 @@
 
 <body>
 
-<h2>Zoned School Locator</h2>
+<h2>Pasadena Zoned School Locator</h2>
 
 <input id="address" placeholder="Enter address (Pasadena)" />
+
 <br>
 
 <select id="level">
@@ -46,46 +47,53 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 
 let userMarker;
 
-// ---------------- DATA STORAGE ----------------
+// ---------------- ZONE DATA ----------------
 let zones = {
   High: [],
   Middle: [],
   Elementary: []
 };
 
-// ---------------- LOAD JSON FILES ----------------
+// Load your GeoJSON files
 async function loadZones() {
 
-  const [high, middle, elementary] = await Promise.all([
+  const [h, m, e] = await Promise.all([
     fetch("high.json").then(r => r.json()),
     fetch("middle.json").then(r => r.json()),
     fetch("elementary.json").then(r => r.json())
   ]);
 
-  zones.High = high.features;
-  zones.Middle = middle.features;
-  zones.Elementary = elementary.features;
-
-  // Optional: draw boundaries
-  L.geoJSON(high, { style: { color: "red", weight: 2 } }).addTo(map);
-  L.geoJSON(middle, { style: { color: "orange", weight: 2 } }).addTo(map);
-  L.geoJSON(elementary, { style: { color: "green", weight: 2 } }).addTo(map);
+  zones.High = h.features;
+  zones.Middle = m.features;
+  zones.Elementary = e.features;
 
   console.log("Zones loaded");
 }
 
 loadZones();
 
-// ---------------- GEOCODE ----------------
+// ---------------- RELIABLE GEOCODER ----------------
+// using Photon (more stable than Nominatim)
 async function geocode(address) {
 
-  const res = await fetch(
-    "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" +
-    encodeURIComponent(address + ", Pasadena, CA")
-  );
+  const url =
+    "https://photon.komoot.io/api/?q=" +
+    encodeURIComponent(address + " Pasadena CA");
 
+  const res = await fetch(url);
   const data = await res.json();
-  return data[0] || null;
+
+  if (data.features && data.features.length > 0) {
+
+    const c = data.features[0].geometry.coordinates;
+
+    return {
+      lat: c[1],
+      lon: c[0]
+    };
+  }
+
+  return null;
 }
 
 // ---------------- POINT IN POLYGON ----------------
@@ -95,6 +103,7 @@ function pointInPolygon(point, vs) {
   let inside = false;
 
   for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+
     const xi = vs[i][0], yi = vs[i][1];
     const xj = vs[j][0], yj = vs[j][1];
 
@@ -117,15 +126,18 @@ function findZonedSchool(lat, lng, level) {
 
   for (let zone of levelZones) {
 
-    const coords = zone.geometry.coordinates;
+    const geom = zone.geometry;
 
-    // handle Polygon vs MultiPolygon
-    const polygon = zone.geometry.type === "MultiPolygon"
-      ? coords[0][0]
-      : coords[0];
+    let polygon;
+
+    if (geom.type === "MultiPolygon") {
+      polygon = geom.coordinates[0][0];
+    } else {
+      polygon = geom.coordinates[0];
+    }
 
     if (pointInPolygon([lng, lat], polygon)) {
-      return zone.properties.name || zone.properties.Name;
+      return zone.properties.name || "Unknown School";
     }
   }
 
@@ -145,13 +157,15 @@ async function findSchool() {
   const geo = await geocode(address);
 
   if (!geo) {
-    document.getElementById("box").innerHTML = "Address not found";
+    document.getElementById("box").innerHTML =
+      "❌ Address not found";
     return;
   }
 
-  const lat = parseFloat(geo.lat);
-  const lng = parseFloat(geo.lon);
+  const lat = geo.lat;
+  const lng = geo.lon;
 
+  // map marker
   if (userMarker) map.removeLayer(userMarker);
 
   userMarker = L.marker([lat, lng])
@@ -161,11 +175,12 @@ async function findSchool() {
 
   map.setView([lat, lng], 13);
 
+  // zoning result
   const school = findZonedSchool(lat, lng, level);
 
   if (!school) {
     document.getElementById("box").innerHTML =
-      "No zoned school found for this location.";
+      "❌ No zoned school found";
     return;
   }
 
