@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Pasadena Zoned School Locator</title>
 
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <style>
     body {
@@ -16,44 +16,42 @@
     }
 
     h2 {
-      margin-bottom: 10px;
-    }
-
-    .controls {
-      max-width: 540px;
-      margin-bottom: 12px;
+      margin-top: 0;
     }
 
     input,
     select,
     button {
-      box-sizing: border-box;
-      padding: 9px;
-      margin: 5px 0;
-      width: 100%;
-      max-width: 360px;
+      display: block;
+      width: 360px;
+      max-width: 100%;
+      padding: 10px;
+      margin: 10px 0;
       font-size: 15px;
+      box-sizing: border-box;
     }
 
     button {
-      cursor: pointer;
-      background: #1f6feb;
+      background: #2f6fed;
       color: white;
       border: none;
       border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
     }
 
-    button:hover {
-      background: #1557b0;
+    button:disabled {
+      background: #999;
+      cursor: not-allowed;
     }
 
     #box {
-      margin-top: 10px;
-      padding: 12px;
+      margin-top: 15px;
+      padding: 14px;
       border: 1px solid #ccc;
-      max-width: 540px;
-      background: #f9f9f9;
-      line-height: 1.4;
+      background: #f8f8f8;
+      max-width: 560px;
+      line-height: 1.45;
     }
 
     #map {
@@ -62,237 +60,186 @@
       border: 1px solid #ccc;
     }
 
-    .success {
-      color: #0a7a28;
-      font-weight: bold;
-    }
-
-    .error {
-      color: #b00020;
-      font-weight: bold;
-    }
-
-    .small {
-      font-size: 13px;
-      color: #555;
-    }
+    .success { color: #087a28; font-weight: bold; }
+    .error { color: #b00020; font-weight: bold; }
+    .small { color: #555; font-size: 13px; }
   </style>
 </head>
 
 <body>
   <h2>Pasadena Zoned School Locator</h2>
 
-  <div class="controls">
-    <input id="address" placeholder="Enter address, e.g. 214 Marathon Road" />
+  <input id="address" placeholder="Enter address, e.g. 214 Marathon Road" />
 
-    <br />
+  <select id="level">
+    <option value="High">High School</option>
+    <option value="Middle">Middle School</option>
+    <option value="Elementary">Elementary School</option>
+  </select>
 
-    <select id="level">
-      <option value="High">High School</option>
-      <option value="Middle">Middle School</option>
-      <option value="Elementary">Elementary School</option>
-    </select>
-
-    <br />
-
-    <button onclick="findSchool()">Find School</button>
-  </div>
+  <button id="findBtn" onclick="findSchool()" disabled>Loading zoning data...</button>
 
   <div id="box">Loading zoning data...</div>
   <div id="map"></div>
 
   <script>
-    // ---------------- MAP ----------------
-    const map = L.map("map").setView([34.1478, -118.1445], 12);
+    // =====================================================
+    // IMPORTANT FOR GITHUB PAGES
+    // Your repo should look like this:
+    // index.html
+    // high.json
+    // middle.json
+    // elementary.json
+    // =====================================================
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
+    const zoneFiles = {
+      High: "./high.json",
+      Middle: "./middle.json",
+      Elementary: "./elementary.json"
+    };
 
-    let userMarker = null;
-    let zoneLayer = null;
-
-    // ---------------- DATA STORAGE ----------------
     const zones = {
       High: [],
       Middle: [],
       Elementary: []
     };
 
-    let zonesLoaded = null;
+    let zonesAreLoaded = false;
+    let userMarker = null;
+    let selectedZoneLayer = null;
 
-    const zoneFiles = {
-      High: "high.json",
-      Middle: "middle.json",
-      Elementary: "elementary.json"
-    };
+    const box = document.getElementById("box");
+    const findBtn = document.getElementById("findBtn");
 
-    // ---------------- UI HELPERS ----------------
-    function setMessage(html) {
-      document.getElementById("box").innerHTML = html;
+    // ---------------- MAP ----------------
+    const map = L.map("map").setView([34.1478, -118.1445], 12);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors"
+    }).addTo(map);
+
+    // ---------------- BASIC HELPERS ----------------
+    function showMessage(html) {
+      box.innerHTML = html;
     }
 
     function escapeHtml(value) {
       return String(value)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
     }
 
-    // ---------------- LOAD GEOJSON FILES ----------------
+    async function fetchJson(path) {
+      const response = await fetch(path, { cache: "no-store" });
+
+      if (!response.ok) {
+        throw new Error(`${path} failed to load. Status: ${response.status}`);
+      }
+
+      return response.json();
+    }
+
+    // ---------------- LOAD ZONE FILES ----------------
     async function loadZones() {
       try {
-        const [highData, middleData, elementaryData] = await Promise.all([
-          fetch(zoneFiles.High).then(checkFetch).then(r => r.json()),
-          fetch(zoneFiles.Middle).then(checkFetch).then(r => r.json()),
-          fetch(zoneFiles.Elementary).then(checkFetch).then(r => r.json())
-        ]);
+        showMessage("Loading zoning data...");
+        findBtn.disabled = true;
+        findBtn.textContent = "Loading zoning data...";
+
+        const highData = await fetchJson(zoneFiles.High);
+        const middleData = await fetchJson(zoneFiles.Middle);
+        const elementaryData = await fetchJson(zoneFiles.Elementary);
 
         zones.High = highData.features || [];
         zones.Middle = middleData.features || [];
         zones.Elementary = elementaryData.features || [];
 
-        console.log("Loaded zone counts:", {
+        zonesAreLoaded = true;
+
+        console.log("Loaded zones:", {
           High: zones.High.length,
           Middle: zones.Middle.length,
           Elementary: zones.Elementary.length
         });
 
-        setMessage("<span class='success'>✅ Zoning data loaded.</span> Enter an address.");
+        findBtn.disabled = false;
+        findBtn.textContent = "Find School";
+
+        showMessage(
+          "<span class='success'>✅ Zoning data loaded.</span><br>" +
+          "Enter an address and choose a school level."
+        );
       } catch (error) {
-        console.error("GeoJSON load error:", error);
-        setMessage(
-          "<span class='error'>❌ Failed to load zoning files.</span><br>" +
-          "Make sure high.json, middle.json, and elementary.json are in the same folder as this HTML file."
+        console.error("Zone loading error:", error);
+
+        findBtn.disabled = true;
+        findBtn.textContent = "Zoning files failed to load";
+
+        showMessage(
+          "<span class='error'>❌ Zoning files failed to load.</span><br><br>" +
+          "Make sure these files are in the same GitHub folder as index.html:<br>" +
+          "<b>high.json</b><br>" +
+          "<b>middle.json</b><br>" +
+          "<b>elementary.json</b><br><br>" +
+          "<span class='small'>Open your browser Console with F12 to see the exact error.</span>"
         );
       }
     }
 
-    function checkFetch(response) {
-      if (!response.ok) {
-        throw new Error(`Could not load ${response.url}: ${response.status}`);
-      }
-      return response;
-    }
+    loadZones();
 
-    zonesLoaded = loadZones();
+    // ---------------- GEOCODING ----------------
+    async function geocodeAddress(address) {
+      const searchText = `${address}, Pasadena, CA, USA`;
 
-    // ---------------- GEOCODE ----------------
-    async function geocode(address) {
-      const fullAddress = `${address}, Pasadena, CA, USA`;
-
-      // Nominatim tends to be more precise for street addresses than Photon.
       const url =
         "https://nominatim.openstreetmap.org/search" +
         "?format=json" +
         "&limit=5" +
         "&addressdetails=1" +
         "&countrycodes=us" +
-        "&q=" + encodeURIComponent(fullAddress);
+        "&q=" + encodeURIComponent(searchText);
 
       const response = await fetch(url, {
-        headers: {
-          "Accept": "application/json"
-        }
+        headers: { Accept: "application/json" }
       });
 
       if (!response.ok) {
-        throw new Error("Geocoding request failed.");
+        throw new Error("Address search failed. Please try again.");
       }
 
       const results = await response.json();
 
-      if (!Array.isArray(results) || results.length === 0) {
+      if (!results || results.length === 0) {
         return null;
       }
 
-      // Prefer results that are actually in Pasadena when available.
       const pasadenaResult = results.find(result => {
-        const addressData = result.address || {};
-        const city = addressData.city || addressData.town || addressData.village || "";
+        const a = result.address || {};
+        const city = a.city || a.town || a.village || a.hamlet || "";
         return city.toLowerCase().includes("pasadena");
       });
 
       const best = pasadenaResult || results[0];
 
       return {
-        lat: parseFloat(best.lat),
-        lng: parseFloat(best.lon),
-        label: best.display_name || fullAddress,
-        raw: best
+        lat: Number(best.lat),
+        lng: Number(best.lon),
+        label: best.display_name || searchText
       };
     }
 
-    // ---------------- POINT IN RING ----------------
+    // ---------------- GEOMETRY CHECKS ----------------
     function pointInRing(point, ring) {
-      const [x, y] = point; // x = longitude, y = latitude
+      const x = point[0]; // longitude
+      const y = point[1]; // latitude
       let inside = false;
 
       for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-        const [xi, yi] = ring[i];
-        const [xj, yj] = ring[j];
-
-        const intersects =
-          ((yi > y) !== (yj > y)) &&
-          (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi);
-
-        if (intersects) inside = !inside;
-      }
-
-      return inside;
-    }
-
-    // GeoJSON polygons can have holes.
-    // The first ring is the outer boundary.
-    // Any additional rings are holes and should be excluded.
-    function pointInPolygonWithHoles(point, polygonCoordinates) {
-      if (!polygonCoordinates || polygonCoordinates.length === 0) return false;
-
-      const outerRing = polygonCoordinates[0];
-      if (!outerRing || outerRing.length < 3) return false;
-
-      if (!pointInRing(point, outerRing)) return false;
-
-      for (let i = 1; i < polygonCoordinates.length; i++) {
-        const hole = polygonCoordinates[i];
-        if (hole && hole.length >= 3 && pointInRing(point, hole)) {
-          return false;
-        }
-      }
-
-      return true;
-    }
-
-    // ---------------- SCHOOL NAME HELPER ----------------
-    function getSchoolName(properties) {
-      if (!properties) return "Unknown School";
-
-      // Try common field names used in GeoJSON exports.
-      return (
-        properties.name ||
-        properties.Name ||
-        properties.SCHOOL ||
-        properties.School ||
-        properties.school ||
-        properties.SCHOOLNAME ||
-        properties.SCHOOL_NAME ||
-        properties.site_name ||
-        properties.SiteName ||
-        "Unknown School"
-      );
-    }
-
-    // ---------------- FIND ZONED SCHOOL ----------------
-    function findZonedSchool(lat, lng, level) {
-      const levelZones = zones[level];
-      const point = [lng, lat];
-
-      if (!levelZones || levelZones.length === 0) {
-        console.warn("No zones loaded for level:", level);
-        return null;
-      }
-
-      for (const zone of levelZones)
+        const xi = ring[i][0];
+        const yi = ring[i][1];
+        const xj = ring[j][0];
