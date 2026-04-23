@@ -32,7 +32,7 @@
 
 <button onclick="findSchool()">Find School</button>
 
-<div id="box">Enter an address to begin</div>
+<div id="box">Loading zoning data...</div>
 <div id="map"></div>
 
 <script>
@@ -46,28 +46,36 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 
 let userMarker;
 
-// ---------------- DATA ----------------
+// ---------------- DATA STORAGE ----------------
 let zones = { High: [], Middle: [], Elementary: [] };
+let zonesLoaded = null;
 
-// ---------------- LOAD ZONES ----------------
-async function loadZones() {
+// ---------------- LOAD GEOJSON FILES ----------------
+function loadZones() {
 
-  const [h, m, e] = await Promise.all([
+  zonesLoaded = Promise.all([
     fetch("high.json").then(r => r.json()),
     fetch("middle.json").then(r => r.json()),
     fetch("elementary.json").then(r => r.json())
-  ]);
+  ]).then(([h, m, e]) => {
 
-  zones.High = h.features;
-  zones.Middle = m.features;
-  zones.Elementary = e.features;
+    zones.High = h.features || [];
+    zones.Middle = m.features || [];
+    zones.Elementary = e.features || [];
 
-  console.log("Zones loaded:", zones);
+    document.getElementById("box").innerHTML =
+      "✅ Zoning data loaded. Enter an address.";
+
+  }).catch(err => {
+    console.error("GeoJSON load error:", err);
+    document.getElementById("box").innerHTML =
+      "❌ Failed to load zoning files.";
+  });
 }
 
 loadZones();
 
-// ---------------- GEOCODE (stable) ----------------
+// ---------------- GEOCODE ----------------
 async function geocode(address) {
 
   const url =
@@ -79,7 +87,7 @@ async function geocode(address) {
 
   if (data.features && data.features.length > 0) {
     const c = data.features[0].geometry.coordinates;
-    return { lat: c[1], lon: c[0] };
+    return { lat: c[1], lng: c[0] };
   }
 
   return null;
@@ -88,13 +96,13 @@ async function geocode(address) {
 // ---------------- POINT IN POLYGON ----------------
 function pointInPolygon(point, vs) {
 
-  const x = point[0], y = point[1];
+  const [x, y] = point;
   let inside = false;
 
   for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
 
-    const xi = vs[i][0], yi = vs[i][1];
-    const xj = vs[j][0], yj = vs[j][1];
+    const [xi, yi] = vs[i];
+    const [xj, yj] = vs[j];
 
     const intersect =
       ((yi > y) !== (yj > y)) &&
@@ -106,48 +114,39 @@ function pointInPolygon(point, vs) {
   return inside;
 }
 
-// ---------------- ZONING ENGINE (FIXED) ----------------
+// ---------------- FIND ZONED SCHOOL ----------------
 function findZonedSchool(lat, lng, level) {
 
   const levelZones = zones[level];
 
   if (!levelZones || levelZones.length === 0) {
-    console.log("No zones loaded for:", level);
+    console.log("No zones for level:", level);
     return null;
   }
 
   for (let zone of levelZones) {
 
     const geom = zone.geometry;
+    if (!geom) continue;
 
     let polygons = [];
 
-    // Normalize Polygon vs MultiPolygon
     if (geom.type === "Polygon") {
       polygons = [geom.coordinates];
-    } else if (geom.type === "MultiPolygon") {
+    }
+    else if (geom.type === "MultiPolygon") {
       polygons = geom.coordinates;
     }
 
     for (let poly of polygons) {
 
-      const ring = poly[0];
-
-      // SAFETY CHECK (prevents silent failures)
+      const ring = poly?.[0];
       if (!ring || ring.length < 3) continue;
 
-      // IMPORTANT: GeoJSON is [lng, lat]
+      // GeoJSON = [lng, lat]
       if (pointInPolygon([lng, lat], ring)) {
 
-        const props = zone.properties || {};
-
-        return (
-          props.name ||
-          props.Name ||
-          props.SCHOOL ||
-          props.school ||
-          "Unknown School"
-        );
+        return zone.properties?.name || "Unknown School";
       }
     }
   }
@@ -157,6 +156,8 @@ function findZonedSchool(lat, lng, level) {
 
 // ---------------- MAIN ----------------
 async function findSchool() {
+
+  await zonesLoaded; // IMPORTANT FIX
 
   const address = document.getElementById("address").value;
   const level = document.getElementById("level").value;
@@ -173,9 +174,8 @@ async function findSchool() {
   }
 
   const lat = geo.lat;
-  const lng = geo.lon;
+  const lng = geo.lng;
 
-  // marker
   if (userMarker) map.removeLayer(userMarker);
 
   userMarker = L.marker([lat, lng])
@@ -185,14 +185,11 @@ async function findSchool() {
 
   map.setView([lat, lng], 13);
 
-  // zoning
   const school = findZonedSchool(lat, lng, level);
-
-  console.log("Result:", school);
 
   if (!school) {
     document.getElementById("box").innerHTML =
-      "❌ No zoned school found (check GeoJSON alignment)";
+      "❌ No zoned school found (GeoJSON mismatch or boundary gap)";
     return;
   }
 
