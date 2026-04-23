@@ -216,12 +216,25 @@
 
     // ---------------- GEOCODING ----------------
     async function geocodeAddress(address) {
-      const searchText = `${address}, Pasadena, CA, USA`;
+      // Do NOT force Pasadena here.
+      // Some PUSD addresses are in Altadena, Sierra Madre, etc.
+      // If the user typed only a street address, we add a general local hint.
+      const lowerAddress = address.toLowerCase();
+      const hasCityOrZip =
+        lowerAddress.includes("pasadena") ||
+        lowerAddress.includes("altadena") ||
+        lowerAddress.includes("sierra madre") ||
+        lowerAddress.includes(" ca") ||
+        /[0-9]{5}/.test(address);
+
+      const searchText = hasCityOrZip
+        ? address
+        : `${address}, Pasadena Unified School District, Los Angeles County, CA, USA`;
 
       const url =
         "https://nominatim.openstreetmap.org/search" +
         "?format=json" +
-        "&limit=5" +
+        "&limit=10" +
         "&addressdetails=1" +
         "&countrycodes=us" +
         "&q=" + encodeURIComponent(searchText);
@@ -240,13 +253,17 @@
         return null;
       }
 
-      const pasadenaResult = results.find(result => {
-        const a = result.address || {};
-        const city = a.city || a.town || a.village || a.hamlet || "";
-        return city.toLowerCase().includes("pasadena");
+      // Prefer local results near Pasadena / Altadena / Sierra Madre.
+      const localResult = results.find(result => {
+        const label = (result.display_name || "").toLowerCase();
+        return (
+          label.includes("pasadena") ||
+          label.includes("altadena") ||
+          label.includes("sierra madre")
+        );
       });
 
-      const best = pasadenaResult || results[0];
+      const best = localResult || results[0];
 
       return {
         lat: Number(best.lat),
@@ -420,7 +437,7 @@
           showMessage(
             "<span class='error'>❌ Address not found.</span><br>" +
             "Try entering the full address with ZIP code, like:<br>" +
-            "<b>214 Marathon Road, Pasadena, CA 91106</b>"
+            "<b>214 Marathon Road, Altadena, CA 91001</b>"
           );
           return;
         }
