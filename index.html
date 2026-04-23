@@ -2,43 +2,24 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Pasadena School Locator</title>
+  <title>Pasadena Zoned School Locator</title>
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 20px;
-    }
-
-    #map {
-      height: 500px;
-      margin-top: 15px;
-    }
-
-    #box {
-      margin-top: 10px;
-      padding: 12px;
-      border: 1px solid #ccc;
-      width: 520px;
-      background: #f9f9f9;
-    }
-
-    input, select, button {
-      padding: 8px;
-      margin: 5px 0;
-      width: 320px;
-    }
+    body { font-family: Arial; margin: 20px; }
+    #map { height: 500px; margin-top: 15px; }
+    #box { margin-top: 10px; padding: 12px; border: 1px solid #ccc; width: 520px; background: #f9f9f9; }
+    input, select, button { padding: 8px; margin: 5px 0; width: 320px; }
   </style>
 </head>
 
 <body>
 
-<h2>Pasadena School Locator</h2>
+<h2>Zoned School Locator</h2>
 
-<input id="address" placeholder="Enter address (Pasadena area)" />
+<input id="address" placeholder="Enter address (Pasadena)" />
 <br>
 
 <select id="level">
@@ -46,6 +27,7 @@
   <option value="Middle">Middle School</option>
   <option value="Elementary">Elementary School</option>
 </select>
+
 <br>
 
 <button onclick="findSchool()">Find School</button>
@@ -63,110 +45,113 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 }).addTo(map);
 
 let userMarker;
-let schoolMarker;
 
-// ---------------- SCHOOL DATA ----------------
-const schools = [
-  // HIGH
-  { name: "Pasadena High School", lat: 34.1521, lng: -118.1217, level: "High" },
-  { name: "John Muir High School", lat: 34.1615, lng: -118.1565, level: "High" },
-  { name: "Blair High School (6-12)", lat: 34.1390, lng: -118.1663, level: "High" },
+// ---------------- DATA STORAGE ----------------
+let zones = {
+  High: [],
+  Middle: [],
+  Elementary: []
+};
 
-  // MIDDLE
-  { name: "Octavia Butler Magnet", lat: 34.1682, lng: -118.1203, level: "Middle" },
-  { name: "Eliot Arts Magnet", lat: 34.1864, lng: -118.1313, level: "Middle" },
-  { name: "McKinley School (6-8)", lat: 34.1536, lng: -118.1546, level: "Middle" },
+// ---------------- LOAD JSON FILES ----------------
+async function loadZones() {
 
-  // ELEMENTARY
-  { name: "Madison Elementary", lat: 34.1652, lng: -118.1235, level: "Elementary" },
-  { name: "Longfellow Elementary", lat: 34.1645, lng: -118.1116, level: "Elementary" },
-  { name: "Hamilton Elementary", lat: 34.1477, lng: -118.0846, level: "Elementary" },
-  { name: "Don Benito Fundamental", lat: 34.1507, lng: -118.0999, level: "Elementary" },
-  { name: "Washington Elementary", lat: 34.1602, lng: -118.1440, level: "Elementary" },
-  { name: "Norma Coombs Alternative", lat: 34.1750, lng: -118.1217, level: "Elementary" },
-  { name: "Altadena Arts Magnet", lat: 34.1866, lng: -118.1315, level: "Elementary" },
-  { name: "Webster Elementary", lat: 34.1692749, lng: -118.107435, level: "Elementary" },
-  { name: "Willard Elementary", lat: 34.1416093, lng: -118.0817059, level: "Elementary" },
-  { name: "Sierra Madre Elementary", lat: 34.1618, lng: -118.0576, level: "Elementary" },
-  { name: "Jackson STEM Dual Language", lat: 34.1718, lng: -118.1030, level: "Elementary" },
-  { name: "McKinley School (TK-5)", lat: 34.1536, lng: -118.1546, level: "Elementary" }
-];
+  const [high, middle, elementary] = await Promise.all([
+    fetch("high.json").then(r => r.json()),
+    fetch("middle.json").then(r => r.json()),
+    fetch("elementary.json").then(r => r.json())
+  ]);
+
+  zones.High = high.features;
+  zones.Middle = middle.features;
+  zones.Elementary = elementary.features;
+
+  // Optional: draw boundaries
+  L.geoJSON(high, { style: { color: "red", weight: 2 } }).addTo(map);
+  L.geoJSON(middle, { style: { color: "orange", weight: 2 } }).addTo(map);
+  L.geoJSON(elementary, { style: { color: "green", weight: 2 } }).addTo(map);
+
+  console.log("Zones loaded");
+}
+
+loadZones();
 
 // ---------------- GEOCODE ----------------
 async function geocode(address) {
-  const queries = [
-    address + ", Pasadena, CA",
-    address + ", CA",
-    address
-  ];
 
-  for (let q of queries) {
-    const res = await fetch(
-      "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" +
-      encodeURIComponent(q)
-    );
+  const res = await fetch(
+    "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" +
+    encodeURIComponent(address + ", Pasadena, CA")
+  );
 
-    const data = await res.json();
-    if (data && data.length > 0) return data[0];
+  const data = await res.json();
+  return data[0] || null;
+}
+
+// ---------------- POINT IN POLYGON ----------------
+function pointInPolygon(point, vs) {
+
+  const x = point[0], y = point[1];
+  let inside = false;
+
+  for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+    const xi = vs[i][0], yi = vs[i][1];
+    const xj = vs[j][0], yj = vs[j][1];
+
+    const intersect =
+      ((yi > y) !== (yj > y)) &&
+      (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+
+    if (intersect) inside = !inside;
+  }
+
+  return inside;
+}
+
+// ---------------- FIND ZONED SCHOOL ----------------
+function findZonedSchool(lat, lng, level) {
+
+  const levelZones = zones[level];
+
+  if (!levelZones || levelZones.length === 0) return null;
+
+  for (let zone of levelZones) {
+
+    const coords = zone.geometry.coordinates;
+
+    // handle Polygon vs MultiPolygon
+    const polygon = zone.geometry.type === "MultiPolygon"
+      ? coords[0][0]
+      : coords[0];
+
+    if (pointInPolygon([lng, lat], polygon)) {
+      return zone.properties.name || zone.properties.Name;
+    }
   }
 
   return null;
 }
 
-// ---------------- DISTANCE ----------------
-function getDistance(a, b) {
-  return map.distance(a, b);
-}
-
-// ---------------- FIND NEAREST ----------------
-function findNearest(lat, lng, level) {
-  let nearest = null;
-  let minDist = Infinity;
-
-  for (let s of schools) {
-    if (s.level !== level) continue;
-
-    const dist = getDistance([lat, lng], [s.lat, s.lng]);
-
-    if (dist < minDist) {
-      minDist = dist;
-      nearest = s;
-    }
-  }
-
-  return { nearest, minDist };
-}
-
-// ---------------- MAIN ----------------
+// ---------------- MAIN FUNCTION ----------------
 async function findSchool() {
+
   const address = document.getElementById("address").value;
   const level = document.getElementById("level").value;
 
-  if (!address) {
-    alert("Please enter an address");
-    return;
-  }
+  if (!address) return alert("Enter address");
 
   document.getElementById("box").innerHTML = "Searching...";
 
   const geo = await geocode(address);
 
   if (!geo) {
-    document.getElementById("box").innerHTML =
-      "❌ Address could not be located";
+    document.getElementById("box").innerHTML = "Address not found";
     return;
   }
 
   const lat = parseFloat(geo.lat);
   const lng = parseFloat(geo.lon);
 
-  if (isNaN(lat) || isNaN(lng)) {
-    document.getElementById("box").innerHTML =
-      "❌ Invalid location data";
-    return;
-  }
-
-  // Map marker for user
   if (userMarker) map.removeLayer(userMarker);
 
   userMarker = L.marker([lat, lng])
@@ -176,28 +161,16 @@ async function findSchool() {
 
   map.setView([lat, lng], 13);
 
-  // Find school
-  const result = findNearest(lat, lng, level);
+  const school = findZonedSchool(lat, lng, level);
 
-  if (!result.nearest) {
+  if (!school) {
     document.getElementById("box").innerHTML =
-      "No school found.";
+      "No zoned school found for this location.";
     return;
   }
 
-  if (schoolMarker) map.removeLayer(schoolMarker);
-
-  schoolMarker = L.marker([result.nearest.lat, result.nearest.lng])
-    .addTo(map)
-    .bindPopup(result.nearest.name)
-    .openPopup();
-
-  const miles = (result.minDist * 0.000621371).toFixed(2);
-
   document.getElementById("box").innerHTML =
-    "<b>Nearest School:</b> " + result.nearest.name + "<br>" +
-    "<b>Level:</b> " + result.nearest.level + "<br>" +
-    "<b>Distance:</b> " + miles + " miles";
+    "<b>Zoned School:</b> " + school;
 }
 
 </script>
