@@ -316,7 +316,7 @@
     function getSchoolName(properties) {
       if (!properties) return "Unknown School";
 
-      return (
+      let name = (
         properties.name ||
         properties.Name ||
         properties.SCHOOL ||
@@ -329,6 +329,13 @@
         properties.site_name ||
         "Unknown School"
       );
+
+      // Rename school
+      if (name === "Washington Middle School") {
+        name = "Octavia E. Butler Middle School";
+      }
+
+      return name;
     }
 
     function findZonedSchool(lat, lng, level) {
