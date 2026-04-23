@@ -134,24 +134,41 @@
     }
 
     async function fetchJson(path) {
-      const response = await fetch(path, { cache: "no-store" });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-      if (!response.ok) {
-        throw new Error(`${path} failed to load. Status: ${response.status}`);
+      try {
+        const response = await fetch(path + "?v=" + Date.now(), {
+          cache: "no-store",
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`${path} failed to load. Status: ${response.status}`);
+        }
+
+        return await response.json();
+      } catch (error) {
+        clearTimeout(timeoutId);
+        throw new Error(`${path} could not be loaded. ${error.message}`);
       }
-
-      return response.json();
     }
 
     // ---------------- LOAD ZONE FILES ----------------
     async function loadZones() {
       try {
-        showMessage("Loading zoning data...");
+        showMessage("Checking zoning files...<br>Loading <b>high.json</b>...");
         findBtn.disabled = true;
         findBtn.textContent = "Loading zoning data...";
 
         const highData = await fetchJson(zoneFiles.High);
+
+        showMessage("Checking zoning files...<br>✅ high.json loaded<br>Loading <b>middle.json</b>...");
         const middleData = await fetchJson(zoneFiles.Middle);
+
+        showMessage("Checking zoning files...<br>✅ high.json loaded<br>✅ middle.json loaded<br>Loading <b>elementary.json</b>...");
         const elementaryData = await fetchJson(zoneFiles.Elementary);
 
         zones.High = highData.features || [];
@@ -171,6 +188,9 @@
 
         showMessage(
           "<span class='success'>✅ Zoning data loaded.</span><br>" +
+          "High zones: " + zones.High.length + "<br>" +
+          "Middle zones: " + zones.Middle.length + "<br>" +
+          "Elementary zones: " + zones.Elementary.length + "<br><br>" +
           "Enter an address and choose a school level."
         );
       } catch (error) {
@@ -181,11 +201,13 @@
 
         showMessage(
           "<span class='error'>❌ Zoning files failed to load.</span><br><br>" +
-          "Make sure these files are in the same GitHub folder as index.html:<br>" +
-          "<b>high.json</b><br>" +
-          "<b>middle.json</b><br>" +
-          "<b>elementary.json</b><br><br>" +
-          "<span class='small'>Open your browser Console with F12 to see the exact error.</span>"
+          escapeHtml(error.message || error) +
+          "<br><br>" +
+          "Try opening these links on your published GitHub Pages site:<br>" +
+          "<b>./high.json</b><br>" +
+          "<b>./middle.json</b><br>" +
+          "<b>./elementary.json</b><br><br>" +
+          "If one of them shows 404 or does not open, that file is the problem."
         );
       }
     }
@@ -243,3 +265,212 @@
         const xi = ring[i][0];
         const yi = ring[i][1];
         const xj = ring[j][0];
+        const yj = ring[j][1];
+
+        const intersect =
+          yi > y !== yj > y &&
+          x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+
+        if (intersect) inside = !inside;
+      }
+
+      return inside;
+    }
+
+    function pointInPolygon(point, polygon) {
+      if (!polygon || polygon.length === 0) return false;
+
+      const outerRing = polygon[0];
+      if (!outerRing || outerRing.length < 3) return false;
+
+      if (!pointInRing(point, outerRing)) return false;
+
+      // Extra rings are holes. If the point is in a hole, it is not in the polygon.
+      for (let i = 1; i < polygon.length; i++) {
+        const hole = polygon[i];
+        if (hole && hole.length >= 3 && pointInRing(point, hole)) {
+          return false;
+        }
+      }
+
+      return true;
+    }
+
+    function getSchoolName(properties) {
+      if (!properties) return "Unknown School";
+
+      return (
+        properties.name ||
+        properties.Name ||
+        properties.SCHOOL ||
+        properties.School ||
+        properties.school ||
+        properties.SCHOOLNAME ||
+        properties.SCHOOL_NAME ||
+        properties.school_name ||
+        properties.SITE_NAME ||
+        properties.site_name ||
+        "Unknown School"
+      );
+    }
+
+    function findZonedSchool(lat, lng, level) {
+      const levelZones = zones[level];
+
+      if (!levelZones || levelZones.length === 0) {
+        return null;
+      }
+
+      // Small tolerance for geocoding/boundary mismatch.
+      // This tests the exact point first, then nearby points.
+      const tolerance = 0.0005;
+      const testPoints = [
+        [lng, lat],
+        [lng + tolerance, lat],
+        [lng - tolerance, lat],
+        [lng, lat + tolerance],
+        [lng, lat - tolerance],
+        [lng + tolerance, lat + tolerance],
+        [lng - tolerance, lat - tolerance],
+        [lng + tolerance, lat - tolerance],
+        [lng - tolerance, lat + tolerance]
+      ];
+
+      for (const zone of levelZones) {
+        const geometry = zone.geometry;
+        if (!geometry) continue;
+
+        if (geometry.type === "Polygon") {
+          for (const point of testPoints) {
+            if (pointInPolygon(point, geometry.coordinates)) {
+              return {
+                name: getSchoolName(zone.properties),
+                feature: zone
+              };
+            }
+          }
+        }
+
+        if (geometry.type === "MultiPolygon") {
+          for (const polygon of geometry.coordinates) {
+            for (const point of testPoints) {
+              if (pointInPolygon(point, polygon)) {
+                return {
+                  name: getSchoolName(zone.properties),
+                  feature: zone
+                };
+              }
+            }
+          }
+        }
+      }
+
+      return null;
+    }
+
+    // ---------------- MAP DRAWING ----------------
+    function drawSearchPoint(lat, lng, label) {
+      if (userMarker) {
+        map.removeLayer(userMarker);
+      }
+
+      userMarker = L.marker([lat, lng])
+        .addTo(map)
+        .bindPopup(escapeHtml(label))
+        .openPopup();
+
+      map.setView([lat, lng], 15);
+    }
+
+    function drawSelectedZone(feature) {
+      if (selectedZoneLayer) {
+        map.removeLayer(selectedZoneLayer);
+      }
+
+      selectedZoneLayer = L.geoJSON(feature, {
+        style: {
+          color: "#2f6fed",
+          weight: 3,
+          fillOpacity: 0.15
+        }
+      }).addTo(map);
+    }
+
+    // ---------------- MAIN BUTTON ACTION ----------------
+    async function findSchool() {
+      try {
+        if (!zonesAreLoaded) {
+          showMessage("<span class='error'>❌ Zoning data is not loaded yet.</span>");
+          return;
+        }
+
+        const address = document.getElementById("address").value.trim();
+        const level = document.getElementById("level").value;
+
+        if (!address) {
+          alert("Please enter an address.");
+          return;
+        }
+
+        showMessage("Searching address...");
+
+        const location = await geocodeAddress(address);
+
+        if (!location) {
+          showMessage(
+            "<span class='error'>❌ Address not found.</span><br>" +
+            "Try entering the full address with ZIP code, like:<br>" +
+            "<b>214 Marathon Road, Pasadena, CA 91106</b>"
+          );
+          return;
+        }
+
+        console.log("Geocoded location:", location);
+
+        drawSearchPoint(location.lat, location.lng, location.label);
+
+        showMessage("Checking school boundary...");
+
+        const result = findZonedSchool(location.lat, location.lng, level);
+
+        if (!result) {
+          showMessage(
+            "<span class='error'>❌ No zoned school found.</span><br><br>" +
+            "The address was found, but it did not land inside any " +
+            escapeHtml(level) +
+            " school boundary.<br><br>" +
+            "<b>Geocoded location:</b><br>" +
+            escapeHtml(location.label) +
+            "<br><br>" +
+            "<b>Coordinates:</b><br>" +
+            "Lat: " + location.lat.toFixed(6) + "<br>" +
+            "Lng: " + location.lng.toFixed(6) + "<br><br>" +
+            "<span class='small'>Try adding the ZIP code. If it still fails, the GeoJSON boundary may not cover this address.</span>"
+          );
+          return;
+        }
+
+        drawSelectedZone(result.feature);
+
+        showMessage(
+          "<span class='success'>✅ Zoned School Found</span><br><br>" +
+          "<b>School level:</b> " + escapeHtml(level) + " School<br>" +
+          "<b>Zoned school:</b> " + escapeHtml(result.name) + "<br><br>" +
+          "<span class='small'>" +
+          "<b>Geocoded location:</b><br>" +
+          escapeHtml(location.label) +
+          "<br>Lat: " + location.lat.toFixed(6) +
+          ", Lng: " + location.lng.toFixed(6) +
+          "</span>"
+        );
+      } catch (error) {
+        console.error(error);
+        showMessage(
+          "<span class='error'>❌ Error:</span><br>" +
+          escapeHtml(error.message || error)
+        );
+      }
+    }
+  </script>
+</body>
+</html>
