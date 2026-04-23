@@ -1,222 +1,206 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<!DOCTYPE html>
 <html>
 <head>
-  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-  <meta http-equiv="Content-Style-Type" content="text/css">
-  <title></title>
-  <meta name="Generator" content="Cocoa HTML Writer">
-  <meta name="CocoaVersion" content="2685.3">
-  <style type="text/css">
-    p.p1 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.0px Helvetica}
-    p.p2 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.0px Helvetica; min-height: 14.0px}
+  <meta charset="UTF-8">
+  <title>Pasadena School Locator</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+
+    #map {
+      height: 500px;
+      margin-top: 15px;
+    }
+
+    #box {
+      margin-top: 10px;
+      padding: 12px;
+      border: 1px solid #ccc;
+      width: 520px;
+      background: #f9f9f9;
+    }
+
+    input, select, button {
+      padding: 8px;
+      margin: 5px 0;
+      width: 320px;
+    }
   </style>
 </head>
+
 <body>
-<p class="p1">&lt;!DOCTYPE html&gt;</p>
-<p class="p1">&lt;html&gt;</p>
-<p class="p1">&lt;head&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;meta charset="UTF-8"&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;title&gt;Pasadena School Locator&lt;/title&gt;</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" /&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;script src="https://unpkg.com/leaflet/dist/leaflet.js"&gt;&lt;/script&gt;</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;style&gt;</p>
-<p class="p1"><span class="Apple-converted-space">    </span>body {</p>
-<p class="p1"><span class="Apple-converted-space">      </span>font-family: Arial, sans-serif;</p>
-<p class="p1"><span class="Apple-converted-space">      </span>margin: 20px;</p>
-<p class="p1"><span class="Apple-converted-space">    </span>}</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">    </span>#map {</p>
-<p class="p1"><span class="Apple-converted-space">      </span>height: 500px;</p>
-<p class="p1"><span class="Apple-converted-space">      </span>margin-top: 15px;</p>
-<p class="p1"><span class="Apple-converted-space">    </span>}</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">    </span>#box {</p>
-<p class="p1"><span class="Apple-converted-space">      </span>margin-top: 10px;</p>
-<p class="p1"><span class="Apple-converted-space">      </span>padding: 12px;</p>
-<p class="p1"><span class="Apple-converted-space">      </span>border: 1px solid #ccc;</p>
-<p class="p1"><span class="Apple-converted-space">      </span>width: 520px;</p>
-<p class="p1"><span class="Apple-converted-space">      </span>background: #f9f9f9;</p>
-<p class="p1"><span class="Apple-converted-space">    </span>}</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">    </span>input, select, button {</p>
-<p class="p1"><span class="Apple-converted-space">      </span>padding: 8px;</p>
-<p class="p1"><span class="Apple-converted-space">      </span>margin: 5px 0;</p>
-<p class="p1"><span class="Apple-converted-space">      </span>width: 320px;</p>
-<p class="p1"><span class="Apple-converted-space">    </span>}</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;/style&gt;</p>
-<p class="p1">&lt;/head&gt;</p>
-<p class="p2"><br></p>
-<p class="p1">&lt;body&gt;</p>
-<p class="p2"><br></p>
-<p class="p1">&lt;h2&gt;Pasadena School Locator&lt;/h2&gt;</p>
-<p class="p2"><br></p>
-<p class="p1">&lt;input id="address" placeholder="Enter address (Pasadena area)" /&gt;</p>
-<p class="p1">&lt;br&gt;</p>
-<p class="p2"><br></p>
-<p class="p1">&lt;select id="level"&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;option value="High"&gt;High School&lt;/option&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;option value="Middle"&gt;Middle School&lt;/option&gt;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>&lt;option value="Elementary"&gt;Elementary School&lt;/option&gt;</p>
-<p class="p1">&lt;/select&gt;</p>
-<p class="p1">&lt;br&gt;</p>
-<p class="p2"><br></p>
-<p class="p1">&lt;button onclick="findSchool()"&gt;Find School&lt;/button&gt;</p>
-<p class="p2"><br></p>
-<p class="p1">&lt;div id="box"&gt;Enter an address to begin&lt;/div&gt;</p>
-<p class="p1">&lt;div id="map"&gt;&lt;/div&gt;</p>
-<p class="p2"><br></p>
-<p class="p1">&lt;script&gt;</p>
-<p class="p2"><br></p>
-<p class="p1">// ---------------- MAP ----------------</p>
-<p class="p1">const map = L.map("map").setView([34.1478, -118.1445], 12);</p>
-<p class="p2"><br></p>
-<p class="p1">L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {</p>
-<p class="p1"><span class="Apple-converted-space">  </span>maxZoom: 19</p>
-<p class="p1">}).addTo(map);</p>
-<p class="p2"><br></p>
-<p class="p1">let userMarker;</p>
-<p class="p1">let schoolMarker;</p>
-<p class="p2"><br></p>
-<p class="p1">// ---------------- SCHOOL DATA ----------------</p>
-<p class="p1">const schools = [</p>
-<p class="p1"><span class="Apple-converted-space">  </span>// HIGH</p>
-<p class="p1"><span class="Apple-converted-space">  </span>{ name: "Pasadena High School", lat: 34.1521, lng: -118.1217, level: "High" },</p>
-<p class="p1"><span class="Apple-converted-space">  </span>{ name: "John Muir High School", lat: 34.1615, lng: -118.1565, level: "High" },</p>
-<p class="p1"><span class="Apple-converted-space">  </span>{ name: "Blair High School (6-12)", lat: 34.1390, lng: -118.1663, level: "High" },</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>// MIDDLE</p>
-<p class="p1"><span class="Apple-converted-space">  </span>{ name: "Octavia Butler Magnet", lat: 34.1682, lng: -118.1203, level: "Middle" },</p>
-<p class="p1"><span class="Apple-converted-space">  </span>{ name: "Eliot Arts Magnet", lat: 34.1864, lng: -118.1313, level: "Middle" },</p>
-<p class="p1"><span class="Apple-converted-space">  </span>{ name: "McKinley School (6-8)", lat: 34.1536, lng: -118.1546, level: "Middle" },</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>// ELEMENTARY</p>
-<p class="p1"><span class="Apple-converted-space">  </span>{ name: "Madison Elementary", lat: 34.1652, lng: -118.1235, level: "Elementary" },</p>
-<p class="p1"><span class="Apple-converted-space">  </span>{ name: "Longfellow Elementary", lat: 34.1645, lng: -118.1116, level: "Elementary" },</p>
-<p class="p1"><span class="Apple-converted-space">  </span>{ name: "Hamilton Elementary", lat: 34.1477, lng: -118.0846, level: "Elementary" },</p>
-<p class="p1"><span class="Apple-converted-space">  </span>{ name: "Don Benito Fundamental", lat: 34.1507, lng: -118.0999, level: "Elementary" },</p>
-<p class="p1"><span class="Apple-converted-space">  </span>{ name: "Washington Elementary", lat: 34.1602, lng: -118.1440, level: "Elementary" },</p>
-<p class="p1"><span class="Apple-converted-space">  </span>{ name: "Norma Coombs Alternative", lat: 34.1750, lng: -118.1217, level: "Elementary" },</p>
-<p class="p1"><span class="Apple-converted-space">  </span>{ name: "Altadena Arts Magnet", lat: 34.1866, lng: -118.1315, level: "Elementary" },</p>
-<p class="p1"><span class="Apple-converted-space">  </span>{ name: "Webster Elementary", lat: 34.1692749, lng: -118.107435, level: "Elementary" },</p>
-<p class="p1"><span class="Apple-converted-space">  </span>{ name: "Willard Elementary", lat: 34.1416093, lng: -118.0817059, level: "Elementary" },</p>
-<p class="p1"><span class="Apple-converted-space">  </span>{ name: "Sierra Madre Elementary", lat: 34.1618, lng: -118.0576, level: "Elementary" },</p>
-<p class="p1"><span class="Apple-converted-space">  </span>{ name: "Jackson STEM Dual Language", lat: 34.1718, lng: -118.1030, level: "Elementary" },</p>
-<p class="p1"><span class="Apple-converted-space">  </span>{ name: "McKinley School (TK-5)", lat: 34.1536, lng: -118.1546, level: "Elementary" }</p>
-<p class="p1">];</p>
-<p class="p2"><br></p>
-<p class="p1">// ---------------- GEOCODE ----------------</p>
-<p class="p1">async function geocode(address) {</p>
-<p class="p1"><span class="Apple-converted-space">  </span>const queries = [</p>
-<p class="p1"><span class="Apple-converted-space">    </span>address + ", Pasadena, CA",</p>
-<p class="p1"><span class="Apple-converted-space">    </span>address + ", CA",</p>
-<p class="p1"><span class="Apple-converted-space">    </span>address</p>
-<p class="p1"><span class="Apple-converted-space">  </span>];</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>for (let q of queries) {</p>
-<p class="p1"><span class="Apple-converted-space">    </span>const res = await fetch(</p>
-<p class="p1"><span class="Apple-converted-space">      </span>"https://nominatim.openstreetmap.org/search?format=json&amp;limit=1&amp;q=" +</p>
-<p class="p1"><span class="Apple-converted-space">      </span>encodeURIComponent(q)</p>
-<p class="p1"><span class="Apple-converted-space">    </span>);</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">    </span>const data = await res.json();</p>
-<p class="p1"><span class="Apple-converted-space">    </span>if (data &amp;&amp; data.length &gt; 0) return data[0];</p>
-<p class="p1"><span class="Apple-converted-space">  </span>}</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>return null;</p>
-<p class="p1">}</p>
-<p class="p2"><br></p>
-<p class="p1">// ---------------- DISTANCE ----------------</p>
-<p class="p1">function getDistance(a, b) {</p>
-<p class="p1"><span class="Apple-converted-space">  </span>return map.distance(a, b);</p>
-<p class="p1">}</p>
-<p class="p2"><br></p>
-<p class="p1">// ---------------- FIND NEAREST ----------------</p>
-<p class="p1">function findNearest(lat, lng, level) {</p>
-<p class="p1"><span class="Apple-converted-space">  </span>let nearest = null;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>let minDist = Infinity;</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>for (let s of schools) {</p>
-<p class="p1"><span class="Apple-converted-space">    </span>if (s.level !== level) continue;</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">    </span>const dist = getDistance([lat, lng], [s.lat, s.lng]);</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">    </span>if (dist &lt; minDist) {</p>
-<p class="p1"><span class="Apple-converted-space">      </span>minDist = dist;</p>
-<p class="p1"><span class="Apple-converted-space">      </span>nearest = s;</p>
-<p class="p1"><span class="Apple-converted-space">    </span>}</p>
-<p class="p1"><span class="Apple-converted-space">  </span>}</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>return { nearest, minDist };</p>
-<p class="p1">}</p>
-<p class="p2"><br></p>
-<p class="p1">// ---------------- MAIN ----------------</p>
-<p class="p1">async function findSchool() {</p>
-<p class="p1"><span class="Apple-converted-space">  </span>const address = document.getElementById("address").value;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>const level = document.getElementById("level").value;</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>if (!address) {</p>
-<p class="p1"><span class="Apple-converted-space">    </span>alert("Please enter an address");</p>
-<p class="p1"><span class="Apple-converted-space">    </span>return;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>}</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>document.getElementById("box").innerHTML = "Searching...";</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>const geo = await geocode(address);</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>if (!geo) {</p>
-<p class="p1"><span class="Apple-converted-space">    </span>document.getElementById("box").innerHTML =</p>
-<p class="p1"><span class="Apple-converted-space">      </span>"❌ Address could not be located";</p>
-<p class="p1"><span class="Apple-converted-space">    </span>return;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>}</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>const lat = parseFloat(geo.lat);</p>
-<p class="p1"><span class="Apple-converted-space">  </span>const lng = parseFloat(geo.lon);</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>if (isNaN(lat) || isNaN(lng)) {</p>
-<p class="p1"><span class="Apple-converted-space">    </span>document.getElementById("box").innerHTML =</p>
-<p class="p1"><span class="Apple-converted-space">      </span>"❌ Invalid location data";</p>
-<p class="p1"><span class="Apple-converted-space">    </span>return;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>}</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>// Map marker for user</p>
-<p class="p1"><span class="Apple-converted-space">  </span>if (userMarker) map.removeLayer(userMarker);</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>userMarker = L.marker([lat, lng])</p>
-<p class="p1"><span class="Apple-converted-space">    </span>.addTo(map)</p>
-<p class="p1"><span class="Apple-converted-space">    </span>.bindPopup("Search Location")</p>
-<p class="p1"><span class="Apple-converted-space">    </span>.openPopup();</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>map.setView([lat, lng], 13);</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>// Find school</p>
-<p class="p1"><span class="Apple-converted-space">  </span>const result = findNearest(lat, lng, level);</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>if (!result.nearest) {</p>
-<p class="p1"><span class="Apple-converted-space">    </span>document.getElementById("box").innerHTML =</p>
-<p class="p1"><span class="Apple-converted-space">      </span>"No school found.";</p>
-<p class="p1"><span class="Apple-converted-space">    </span>return;</p>
-<p class="p1"><span class="Apple-converted-space">  </span>}</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>if (schoolMarker) map.removeLayer(schoolMarker);</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>schoolMarker = L.marker([result.nearest.lat, result.nearest.lng])</p>
-<p class="p1"><span class="Apple-converted-space">    </span>.addTo(map)</p>
-<p class="p1"><span class="Apple-converted-space">    </span>.bindPopup(result.nearest.name)</p>
-<p class="p1"><span class="Apple-converted-space">    </span>.openPopup();</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>const miles = (result.minDist * 0.000621371).toFixed(2);</p>
-<p class="p2"><br></p>
-<p class="p1"><span class="Apple-converted-space">  </span>document.getElementById("box").innerHTML =</p>
-<p class="p1"><span class="Apple-converted-space">    </span>"&lt;b&gt;Nearest School:&lt;/b&gt; " + result.nearest.name + "&lt;br&gt;" +</p>
-<p class="p1"><span class="Apple-converted-space">    </span>"&lt;b&gt;Level:&lt;/b&gt; " + result.nearest.level + "&lt;br&gt;" +</p>
-<p class="p1"><span class="Apple-converted-space">    </span>"&lt;b&gt;Distance:&lt;/b&gt; " + miles + " miles";</p>
-<p class="p1">}</p>
-<p class="p2"><br></p>
-<p class="p1">&lt;/script&gt;</p>
-<p class="p2"><br></p>
-<p class="p1">&lt;/body&gt;</p>
-<p class="p1">&lt;/html&gt;</p>
+
+<h2>Pasadena School Locator</h2>
+
+<input id="address" placeholder="Enter address (Pasadena area)" />
+<br>
+
+<select id="level">
+  <option value="High">High School</option>
+  <option value="Middle">Middle School</option>
+  <option value="Elementary">Elementary School</option>
+</select>
+<br>
+
+<button onclick="findSchool()">Find School</button>
+
+<div id="box">Enter an address to begin</div>
+<div id="map"></div>
+
+<script>
+
+// ---------------- MAP ----------------
+const map = L.map("map").setView([34.1478, -118.1445], 12);
+
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19
+}).addTo(map);
+
+let userMarker;
+let schoolMarker;
+
+// ---------------- SCHOOL DATA ----------------
+const schools = [
+  // HIGH
+  { name: "Pasadena High School", lat: 34.1521, lng: -118.1217, level: "High" },
+  { name: "John Muir High School", lat: 34.1615, lng: -118.1565, level: "High" },
+  { name: "Blair High School (6-12)", lat: 34.1390, lng: -118.1663, level: "High" },
+
+  // MIDDLE
+  { name: "Octavia Butler Magnet", lat: 34.1682, lng: -118.1203, level: "Middle" },
+  { name: "Eliot Arts Magnet", lat: 34.1864, lng: -118.1313, level: "Middle" },
+  { name: "McKinley School (6-8)", lat: 34.1536, lng: -118.1546, level: "Middle" },
+
+  // ELEMENTARY
+  { name: "Madison Elementary", lat: 34.1652, lng: -118.1235, level: "Elementary" },
+  { name: "Longfellow Elementary", lat: 34.1645, lng: -118.1116, level: "Elementary" },
+  { name: "Hamilton Elementary", lat: 34.1477, lng: -118.0846, level: "Elementary" },
+  { name: "Don Benito Fundamental", lat: 34.1507, lng: -118.0999, level: "Elementary" },
+  { name: "Washington Elementary", lat: 34.1602, lng: -118.1440, level: "Elementary" },
+  { name: "Norma Coombs Alternative", lat: 34.1750, lng: -118.1217, level: "Elementary" },
+  { name: "Altadena Arts Magnet", lat: 34.1866, lng: -118.1315, level: "Elementary" },
+  { name: "Webster Elementary", lat: 34.1692749, lng: -118.107435, level: "Elementary" },
+  { name: "Willard Elementary", lat: 34.1416093, lng: -118.0817059, level: "Elementary" },
+  { name: "Sierra Madre Elementary", lat: 34.1618, lng: -118.0576, level: "Elementary" },
+  { name: "Jackson STEM Dual Language", lat: 34.1718, lng: -118.1030, level: "Elementary" },
+  { name: "McKinley School (TK-5)", lat: 34.1536, lng: -118.1546, level: "Elementary" }
+];
+
+// ---------------- GEOCODE ----------------
+async function geocode(address) {
+  const queries = [
+    address + ", Pasadena, CA",
+    address + ", CA",
+    address
+  ];
+
+  for (let q of queries) {
+    const res = await fetch(
+      "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" +
+      encodeURIComponent(q)
+    );
+
+    const data = await res.json();
+    if (data && data.length > 0) return data[0];
+  }
+
+  return null;
+}
+
+// ---------------- DISTANCE ----------------
+function getDistance(a, b) {
+  return map.distance(a, b);
+}
+
+// ---------------- FIND NEAREST ----------------
+function findNearest(lat, lng, level) {
+  let nearest = null;
+  let minDist = Infinity;
+
+  for (let s of schools) {
+    if (s.level !== level) continue;
+
+    const dist = getDistance([lat, lng], [s.lat, s.lng]);
+
+    if (dist < minDist) {
+      minDist = dist;
+      nearest = s;
+    }
+  }
+
+  return { nearest, minDist };
+}
+
+// ---------------- MAIN ----------------
+async function findSchool() {
+  const address = document.getElementById("address").value;
+  const level = document.getElementById("level").value;
+
+  if (!address) {
+    alert("Please enter an address");
+    return;
+  }
+
+  document.getElementById("box").innerHTML = "Searching...";
+
+  const geo = await geocode(address);
+
+  if (!geo) {
+    document.getElementById("box").innerHTML =
+      "❌ Address could not be located";
+    return;
+  }
+
+  const lat = parseFloat(geo.lat);
+  const lng = parseFloat(geo.lon);
+
+  if (isNaN(lat) || isNaN(lng)) {
+    document.getElementById("box").innerHTML =
+      "❌ Invalid location data";
+    return;
+  }
+
+  // Map marker for user
+  if (userMarker) map.removeLayer(userMarker);
+
+  userMarker = L.marker([lat, lng])
+    .addTo(map)
+    .bindPopup("Search Location")
+    .openPopup();
+
+  map.setView([lat, lng], 13);
+
+  // Find school
+  const result = findNearest(lat, lng, level);
+
+  if (!result.nearest) {
+    document.getElementById("box").innerHTML =
+      "No school found.";
+    return;
+  }
+
+  if (schoolMarker) map.removeLayer(schoolMarker);
+
+  schoolMarker = L.marker([result.nearest.lat, result.nearest.lng])
+    .addTo(map)
+    .bindPopup(result.nearest.name)
+    .openPopup();
+
+  const miles = (result.minDist * 0.000621371).toFixed(2);
+
+  document.getElementById("box").innerHTML =
+    "<b>Nearest School:</b> " + result.nearest.name + "<br>" +
+    "<b>Level:</b> " + result.nearest.level + "<br>" +
+    "<b>Distance:</b> " + miles + " miles";
+}
+
+</script>
+
 </body>
 </html>
