@@ -532,6 +532,10 @@
       const candidates = [];
       const seen = new Set();
 
+      // ArcGIS usually handles exact street addresses better.
+      await addArcGisCandidates(address, candidates, seen);
+
+      // These are backups if ArcGIS does not find the address.
       await addNominatimCandidates(address, candidates, seen);
       await addPhotonCandidates(address, candidates, seen);
 
@@ -583,6 +587,57 @@
         label: label || "Unknown location",
         source: source
       });
+    }
+
+    async function addArcGisCandidates(address, candidates, seen) {
+      const queries = [
+        address,
+        address + ", CA",
+        address + ", San Gabriel, CA",
+        address + ", Pasadena, CA",
+        address + ", Los Angeles County, CA"
+      ];
+
+      for (const query of queries) {
+        let url =
+          "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates" +
+          "?f=json" +
+          "&maxLocations=10" +
+          "&outFields=Match_addr,Addr_type,Score" +
+          "&SingleLine=" + encodeURIComponent(query);
+
+        if (districtBounds) {
+          url +=
+            "&searchExtent=" +
+            districtBounds.minLng + "," +
+            districtBounds.minLat + "," +
+            districtBounds.maxLng + "," +
+            districtBounds.maxLat;
+        }
+
+        try {
+          const response = await fetch(url);
+          if (!response.ok) continue;
+
+          const data = await response.json();
+          const results = data.candidates || [];
+
+          for (const result of results) {
+            if (!result.location) continue;
+
+            addCandidate(
+              candidates,
+              seen,
+              Number(result.location.y),
+              Number(result.location.x),
+              result.address || query,
+              "ArcGIS"
+            );
+          }
+        } catch (error) {
+          console.warn("ArcGIS failed for query:", query, error);
+        }
+      }
     }
 
     async function addNominatimCandidates(address, candidates, seen) {
