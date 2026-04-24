@@ -101,7 +101,7 @@
 <body>
   <h2>Pasadena Zoned School Locator</h2>
 
-  <input id="address" placeholder="Enter address, e.g. 86 N Craig Ave Pasadena" />
+  <input id="address" placeholder="Enter address, e.g. 7137 N Rosemead Blvd, San Gabriel" />
 
   <select id="level">
     <option value="High">High School</option>
@@ -305,53 +305,65 @@
 
     zonesLoaded = loadZones();
 
+    // =====================================================
+    // GEOCODING
+    // This intentionally does NOT restrict to one city.
+    // It tries broad searches so addresses from uploaded KML/GeoJSON zones
+    // can resolve even if they are in Pasadena, Altadena, Sierra Madre,
+    // San Gabriel, or another nearby Los Angeles County area.
+    // =====================================================
     async function geocodeAddress(address) {
-      const lowerAddress = address.toLowerCase();
-      const hasCityOrZip =
-        lowerAddress.includes("pasadena") ||
-        lowerAddress.includes("altadena") ||
-        lowerAddress.includes("sierra madre") ||
-        lowerAddress.includes(" ca") ||
-        /[0-9]{5}/.test(address);
+      const queries = [
+        address,
+        address + ", CA, USA",
+        address + ", Los Angeles County, CA, USA",
+        address + ", Pasadena Unified School District, CA, USA"
+      ];
 
-      const searchText = hasCityOrZip
-        ? address
-        : address + ", Pasadena Unified School District, Los Angeles County, CA, USA";
+      for (const query of queries) {
+        const url =
+          "https://nominatim.openstreetmap.org/search" +
+          "?format=json" +
+          "&limit=10" +
+          "&addressdetails=1" +
+          "&countrycodes=us" +
+          "&q=" + encodeURIComponent(query);
 
-      const url =
-        "https://nominatim.openstreetmap.org/search" +
-        "?format=json" +
-        "&limit=10" +
-        "&addressdetails=1" +
-        "&countrycodes=us" +
-        "&q=" + encodeURIComponent(searchText);
+        const response = await fetch(url, {
+          headers: { Accept: "application/json" }
+        });
 
-      const response = await fetch(url, {
-        headers: { Accept: "application/json" }
-      });
+        if (!response.ok) {
+          continue;
+        }
 
-      if (!response.ok) {
-        throw new Error("Address search failed. Please try again.");
+        const results = await response.json();
+
+        if (results && results.length > 0) {
+          // Prefer results in Los Angeles County or nearby PUSD-related cities,
+          // but do not require a specific city name.
+          const localResult = results.find(function(result) {
+            const label = (result.display_name || "").toLowerCase();
+            return (
+              label.includes("los angeles county") ||
+              label.includes("pasadena") ||
+              label.includes("altadena") ||
+              label.includes("sierra madre") ||
+              label.includes("san gabriel")
+            );
+          });
+
+          const best = localResult || results[0];
+
+          return {
+            lat: Number(best.lat),
+            lng: Number(best.lon),
+            label: best.display_name || query
+          };
+        }
       }
 
-      const results = await response.json();
-
-      if (!results || results.length === 0) {
-        return null;
-      }
-
-      const localResult = results.find(function(result) {
-        const label = (result.display_name || "").toLowerCase();
-        return label.includes("pasadena") || label.includes("altadena") || label.includes("sierra madre");
-      });
-
-      const best = localResult || results[0];
-
-      return {
-        lat: Number(best.lat),
-        lng: Number(best.lon),
-        label: best.display_name || searchText
-      };
+      return null;
     }
 
     function pointInRing(point, ring) {
@@ -541,8 +553,7 @@
         if (!location) {
           showMessage(
             "<span class='error'>❌ Address not found.</span><br>" +
-            "Try entering the full address with ZIP code, like:<br>" +
-            "<b>214 Marathon Road, Altadena, CA 91001</b>"
+            "Try entering the full address with city, state, and ZIP code."
           );
           return;
         }
@@ -557,7 +568,7 @@
             "<span class='error'>❌ No zoned school found.</span><br><br>" +
             "The address was found, but it did not land inside any " +
             escapeHtml(level) +
-            " school boundary.<br><br>" +
+            " school boundary from your uploaded zone files.<br><br>" +
             "<b>Geocoded location:</b><br>" +
             escapeHtml(location.label) +
             "<br><br>" +
