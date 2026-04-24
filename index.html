@@ -60,20 +60,9 @@
       border: 1px solid #ccc;
     }
 
-    .success {
-      color: #087a28;
-      font-weight: bold;
-    }
-
-    .error {
-      color: #b00020;
-      font-weight: bold;
-    }
-
-    .small {
-      color: #555;
-      font-size: 13px;
-    }
+    .success { color: #087a28; font-weight: bold; }
+    .error { color: #b00020; font-weight: bold; }
+    .small { color: #555; font-size: 13px; }
 
     .school-card {
       margin-top: 10px;
@@ -131,7 +120,7 @@
     // =====================================================
     // ADD OR EDIT SCHOOL INFORMATION HERE
     // Use \n inside descriptions for a new line.
-    // The names here should match the cleaned GeoJSON names.
+    // Names should match the cleaned GeoJSON names.
     // =====================================================
     const schoolInfo = {
       "Pasadena High School": {
@@ -158,11 +147,27 @@
         website: ""
       },
 
+      "McKinley Middle School": {
+        description: "Add your description here.",
+        address: "",
+        phone: "",
+        grades: "6–8",
+        website: ""
+      },
+
       "Octavia E. Butler Middle School": {
         description: "Add your description here.",
         address: "",
         phone: "",
         grades: "6–8",
+        website: ""
+      },
+
+      "Willard Elementary School": {
+        description: "Add your description here.",
+        address: "",
+        phone: "",
+        grades: "K–5",
         website: ""
       },
 
@@ -185,26 +190,6 @@
       // }
     };
 
-    // =====================================================
-    // MANUAL ADDRESS OVERRIDES
-    // Use this only when the online geocoder finds the wrong place.
-    // The app will match the text in "match" and return the school you set.
-    // =====================================================
-    const addressOverrides = [
-      {
-        match: "7137 rosemead blvd",
-        level: "High",
-        school: "Pasadena High School",
-        label: "7137 N Rosemead Blvd, San Gabriel",
-        lat: 34.1700,
-        lng: -118.0730
-      }
-    ];
-
-    // =====================================================
-    // APP DATA
-    // You usually do not need to edit below this line.
-    // =====================================================
     const zones = {
       High: [],
       Middle: [],
@@ -215,6 +200,7 @@
     let zonesAreLoaded = false;
     let userMarker = null;
     let selectedZoneLayer = null;
+    let districtBounds = null;
 
     const box = document.getElementById("box");
     const findBtn = document.getElementById("findBtn");
@@ -284,6 +270,8 @@
         zones.Middle = middleData.features || [];
         zones.Elementary = elementaryData.features || [];
 
+        districtBounds = calculateDistrictBounds();
+
         zonesAreLoaded = true;
         findBtn.disabled = false;
         findBtn.textContent = "Find School";
@@ -291,7 +279,8 @@
         console.log("Loaded zones:", {
           High: zones.High.length,
           Middle: zones.Middle.length,
-          Elementary: zones.Elementary.length
+          Elementary: zones.Elementary.length,
+          districtBounds: districtBounds
         });
 
         showMessage(
@@ -322,79 +311,8 @@
     zonesLoaded = loadZones();
 
     // =====================================================
-    // GEOCODING
-    // This intentionally does NOT restrict to one city.
-    // It tries broad searches so addresses from uploaded KML/GeoJSON zones
-    // can resolve even if they are in Pasadena, Altadena, Sierra Madre,
-    // San Gabriel, or another nearby Los Angeles County area.
+    // GEOMETRY
     // =====================================================
-    async function geocodeAddress(address, level) {
-      // Try several search versions because some valid PUSD boundary addresses
-      // are not geocoded correctly by the first result.
-      const queries = [
-        address,
-        address + ", CA, USA",
-        address + ", Pasadena, CA, USA",
-        address + ", Los Angeles County, CA, USA",
-        address + ", Pasadena Unified School District, CA, USA"
-      ];
-
-      const candidates = [];
-      const seen = new Set();
-
-      for (const query of queries) {
-        const url =
-          "https://nominatim.openstreetmap.org/search" +
-          "?format=json" +
-          "&limit=10" +
-          "&addressdetails=1" +
-          "&countrycodes=us" +
-          "&q=" + encodeURIComponent(query);
-
-        const response = await fetch(url, {
-          headers: { Accept: "application/json" }
-        });
-
-        if (!response.ok) continue;
-
-        const results = await response.json();
-        if (!results || results.length === 0) continue;
-
-        for (const result of results) {
-          const lat = Number(result.lat);
-          const lng = Number(result.lon);
-          const key = lat.toFixed(6) + "," + lng.toFixed(6);
-
-          if (!seen.has(key)) {
-            seen.add(key);
-            candidates.push({
-              lat: lat,
-              lng: lng,
-              label: result.display_name || query
-            });
-          }
-        }
-      }
-
-      if (candidates.length === 0) {
-        return null;
-      }
-
-      // Best option: choose the geocoded point that actually lands inside
-      // one of the uploaded school boundaries for the selected level.
-      for (const candidate of candidates) {
-        const boundaryMatch = findZonedSchool(candidate.lat, candidate.lng, level);
-        if (boundaryMatch) {
-          candidate.boundaryMatch = boundaryMatch;
-          return candidate;
-        }
-      }
-
-      // Fallback: if no candidate falls inside a boundary, return the first one
-      // so the user can see where the geocoder placed the address.
-      return candidates[0];
-    }
-
     function pointInRing(point, ring) {
       const x = point[0];
       const y = point[1];
@@ -462,36 +380,19 @@
       };
     }
 
-    function normalizeText(text) {
-      return String(text || "")
-        .toLowerCase()
-        .replace(/north/g, "n")
-        .replace(/south/g, "s")
-        .replace(/east/g, "e")
-        .replace(/west/g, "w")
-        .replace(/[^a-z0-9]+/g, " ")
-        .trim();
-    }
+    function getFeaturePolygons(feature) {
+      const geometry = feature.geometry;
+      if (!geometry) return [];
 
-    function getAddressOverride(address, level) {
-      const normalizedAddress = normalizeText(address);
-
-      return addressOverrides.find(function(item) {
-        return item.level === level && normalizedAddress.includes(normalizeText(item.match));
-      }) || null;
-    }
-
-    function findZoneFeatureBySchoolName(schoolName, level) {
-      const levelZones = zones[level] || [];
-
-      for (const zone of levelZones) {
-        const name = getSchoolName(zone.properties);
-        if (name === schoolName) {
-          return zone;
-        }
+      if (geometry.type === "Polygon") {
+        return [geometry.coordinates];
       }
 
-      return null;
+      if (geometry.type === "MultiPolygon") {
+        return geometry.coordinates;
+      }
+
+      return [];
     }
 
     function findZonedSchool(lat, lng, level) {
@@ -512,12 +413,11 @@
       ];
 
       for (const zone of levelZones) {
-        const geometry = zone.geometry;
-        if (!geometry) continue;
+        const polygons = getFeaturePolygons(zone);
 
-        if (geometry.type === "Polygon") {
+        for (const polygon of polygons) {
           for (const point of testPoints) {
-            if (pointInPolygon(point, geometry.coordinates)) {
+            if (pointInPolygon(point, polygon)) {
               return {
                 name: getSchoolName(zone.properties),
                 feature: zone
@@ -525,22 +425,245 @@
             }
           }
         }
+      }
 
-        if (geometry.type === "MultiPolygon") {
-          for (const polygon of geometry.coordinates) {
-            for (const point of testPoints) {
-              if (pointInPolygon(point, polygon)) {
-                return {
-                  name: getSchoolName(zone.properties),
-                  feature: zone
-                };
+      return null;
+    }
+
+    function pointInsideAnyPusdZone(lat, lng) {
+      return (
+        findZonedSchool(lat, lng, "High") ||
+        findZonedSchool(lat, lng, "Middle") ||
+        findZonedSchool(lat, lng, "Elementary")
+      );
+    }
+
+    function calculateDistrictBounds() {
+      let minLng = Infinity;
+      let minLat = Infinity;
+      let maxLng = -Infinity;
+      let maxLat = -Infinity;
+
+      for (const level of ["High", "Middle", "Elementary"]) {
+        for (const feature of zones[level]) {
+          const polygons = getFeaturePolygons(feature);
+
+          for (const polygon of polygons) {
+            for (const ring of polygon) {
+              for (const coordinate of ring) {
+                const lng = coordinate[0];
+                const lat = coordinate[1];
+
+                if (lng < minLng) minLng = lng;
+                if (lat < minLat) minLat = lat;
+                if (lng > maxLng) maxLng = lng;
+                if (lat > maxLat) maxLat = lat;
               }
             }
           }
         }
       }
 
-      return null;
+      if (!isFinite(minLng) || !isFinite(minLat) || !isFinite(maxLng) || !isFinite(maxLat)) {
+        return null;
+      }
+
+      const padding = 0.01;
+      return {
+        minLng: minLng - padding,
+        minLat: minLat - padding,
+        maxLng: maxLng + padding,
+        maxLat: maxLat + padding
+      };
+    }
+
+    function pointInsideDistrictBounds(lat, lng) {
+      if (!districtBounds) return true;
+
+      return (
+        lng >= districtBounds.minLng &&
+        lng <= districtBounds.maxLng &&
+        lat >= districtBounds.minLat &&
+        lat <= districtBounds.maxLat
+      );
+    }
+
+    // =====================================================
+    // GEOCODING
+    // No manual address overrides.
+    // The app asks geocoders for multiple possible results, then only accepts
+    // a result that falls inside your uploaded Pasadena Unified zone files.
+    // =====================================================
+    async function geocodeAddress(address, level) {
+      const candidates = [];
+      const seen = new Set();
+
+      await addNominatimCandidates(address, candidates, seen);
+      await addPhotonCandidates(address, candidates, seen);
+
+      if (candidates.length === 0) {
+        return null;
+      }
+
+      // Best: result falls inside the selected level boundary.
+      for (const candidate of candidates) {
+        const match = findZonedSchool(candidate.lat, candidate.lng, level);
+        if (match) {
+          candidate.boundaryMatch = match;
+          candidate.matchQuality = "selected-level-boundary";
+          return candidate;
+        }
+      }
+
+      // Second best: result falls anywhere inside the uploaded PUSD boundaries.
+      for (const candidate of candidates) {
+        const anyPusdMatch = pointInsideAnyPusdZone(candidate.lat, candidate.lng);
+        if (anyPusdMatch) {
+          candidate.matchQuality = "inside-pusd-boundary";
+          return candidate;
+        }
+      }
+
+      // Third best: inside the overall bounding box of the uploaded zone files.
+      for (const candidate of candidates) {
+        if (pointInsideDistrictBounds(candidate.lat, candidate.lng)) {
+          candidate.matchQuality = "inside-zone-bounds";
+          return candidate;
+        }
+      }
+
+      // Last fallback: return the first geocoder result so the user can see where it landed.
+      candidates[0].matchQuality = "outside-pusd-boundary";
+      return candidates[0];
+    }
+
+    function addCandidate(candidates, seen, lat, lng, label, source) {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+      const key = lat.toFixed(6) + "," + lng.toFixed(6);
+      if (seen.has(key)) return;
+
+      seen.add(key);
+      candidates.push({
+        lat: lat,
+        lng: lng,
+        label: label || "Unknown location",
+        source: source
+      });
+    }
+
+    async function addNominatimCandidates(address, candidates, seen) {
+      const queries = [
+        address,
+        address + ", CA, USA",
+        address + ", Pasadena, CA, USA",
+        address + ", Altadena, CA, USA",
+        address + ", Sierra Madre, CA, USA",
+        address + ", San Gabriel, CA, USA",
+        address + ", Los Angeles County, CA, USA",
+        address + ", Pasadena Unified School District, CA, USA"
+      ];
+
+      for (const query of queries) {
+        let url =
+          "https://nominatim.openstreetmap.org/search" +
+          "?format=json" +
+          "&limit=10" +
+          "&addressdetails=1" +
+          "&countrycodes=us";
+
+        if (districtBounds) {
+          // Nominatim viewbox order: left,top,right,bottom
+          url +=
+            "&viewbox=" +
+            districtBounds.minLng + "," +
+            districtBounds.maxLat + "," +
+            districtBounds.maxLng + "," +
+            districtBounds.minLat;
+        }
+
+        url += "&q=" + encodeURIComponent(query);
+
+        try {
+          const response = await fetch(url, {
+            headers: { Accept: "application/json" }
+          });
+
+          if (!response.ok) continue;
+
+          const results = await response.json();
+          if (!results || results.length === 0) continue;
+
+          for (const result of results) {
+            addCandidate(
+              candidates,
+              seen,
+              Number(result.lat),
+              Number(result.lon),
+              result.display_name || query,
+              "Nominatim"
+            );
+          }
+        } catch (error) {
+          console.warn("Nominatim failed for query:", query, error);
+        }
+      }
+    }
+
+    async function addPhotonCandidates(address, candidates, seen) {
+      const queries = [
+        address,
+        address + ", CA",
+        address + ", Pasadena CA",
+        address + ", Altadena CA",
+        address + ", Sierra Madre CA",
+        address + ", San Gabriel CA"
+      ];
+
+      for (const query of queries) {
+        let url = "https://photon.komoot.io/api/?limit=10&q=" + encodeURIComponent(query);
+
+        if (districtBounds) {
+          const centerLat = (districtBounds.minLat + districtBounds.maxLat) / 2;
+          const centerLng = (districtBounds.minLng + districtBounds.maxLng) / 2;
+          url += "&lat=" + centerLat + "&lon=" + centerLng;
+        }
+
+        try {
+          const response = await fetch(url);
+          if (!response.ok) continue;
+
+          const data = await response.json();
+          const features = data.features || [];
+
+          for (const feature of features) {
+            if (!feature.geometry || !feature.geometry.coordinates) continue;
+
+            const lng = Number(feature.geometry.coordinates[0]);
+            const lat = Number(feature.geometry.coordinates[1]);
+            const props = feature.properties || {};
+
+            const labelParts = [
+              props.name,
+              props.street,
+              props.city,
+              props.state,
+              props.country
+            ].filter(Boolean);
+
+            addCandidate(
+              candidates,
+              seen,
+              lat,
+              lng,
+              labelParts.join(", ") || query,
+              "Photon"
+            );
+          }
+        } catch (error) {
+          console.warn("Photon failed for query:", query, error);
+        }
+      }
     }
 
     function drawSearchPoint(lat, lng, label) {
@@ -586,6 +709,8 @@
           escapeHtml(location.label) +
           "<br>Lat: " + location.lat.toFixed(6) +
           ", Lng: " + location.lng.toFixed(6) +
+          "<br>Source: " + escapeHtml(location.source || "geocoder") +
+          "<br>Match: " + escapeHtml(location.matchQuality || "boundary check") +
         "</span>"
       );
     }
@@ -607,27 +732,7 @@
           return;
         }
 
-        const override = getAddressOverride(address, level);
-
-        if (override) {
-          const feature = findZoneFeatureBySchoolName(override.school, level);
-          const location = {
-            lat: override.lat,
-            lng: override.lng,
-            label: override.label + " (manual geocoder correction)"
-          };
-
-          drawSearchPoint(location.lat, location.lng, location.label);
-
-          if (feature) {
-            drawSelectedZone(feature);
-          }
-
-          showMessage(buildSchoolCard(override.school, level, location));
-          return;
-        }
-
-        showMessage("Searching address...");
+        showMessage("Searching address inside uploaded PUSD boundary files...");
 
         const location = await geocodeAddress(address, level);
 
@@ -647,15 +752,16 @@
         if (!result) {
           showMessage(
             "<span class='error'>❌ No zoned school found.</span><br><br>" +
-            "The address was found, but it did not land inside any " +
+            "The address was found, but none of the geocoder results landed inside any " +
             escapeHtml(level) +
             " school boundary from your uploaded zone files.<br><br>" +
-            "<b>Geocoded location:</b><br>" +
+            "<b>Best geocoded location:</b><br>" +
             escapeHtml(location.label) +
             "<br><br>" +
             "<b>Coordinates:</b><br>" +
             "Lat: " + location.lat.toFixed(6) + "<br>" +
-            "Lng: " + location.lng.toFixed(6)
+            "Lng: " + location.lng.toFixed(6) + "<br><br>" +
+            "<span class='small'>This usually means the online geocoder is choosing the wrong place for the typed address, or the address is outside the uploaded boundary files.</span>"
           );
           return;
         }
