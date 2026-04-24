@@ -312,13 +312,19 @@
     // can resolve even if they are in Pasadena, Altadena, Sierra Madre,
     // San Gabriel, or another nearby Los Angeles County area.
     // =====================================================
-    async function geocodeAddress(address) {
+    async function geocodeAddress(address, level) {
+      // Try several search versions because some valid PUSD boundary addresses
+      // are not geocoded correctly by the first result.
       const queries = [
         address,
         address + ", CA, USA",
+        address + ", Pasadena, CA, USA",
         address + ", Los Angeles County, CA, USA",
         address + ", Pasadena Unified School District, CA, USA"
       ];
+
+      const candidates = [];
+      const seen = new Set();
 
       for (const query of queries) {
         const url =
@@ -333,37 +339,44 @@
           headers: { Accept: "application/json" }
         });
 
-        if (!response.ok) {
-          continue;
-        }
+        if (!response.ok) continue;
 
         const results = await response.json();
+        if (!results || results.length === 0) continue;
 
-        if (results && results.length > 0) {
-          // Prefer results in Los Angeles County or nearby PUSD-related cities,
-          // but do not require a specific city name.
-          const localResult = results.find(function(result) {
-            const label = (result.display_name || "").toLowerCase();
-            return (
-              label.includes("los angeles county") ||
-              label.includes("pasadena") ||
-              label.includes("altadena") ||
-              label.includes("sierra madre") ||
-              label.includes("san gabriel")
-            );
-          });
+        for (const result of results) {
+          const lat = Number(result.lat);
+          const lng = Number(result.lon);
+          const key = lat.toFixed(6) + "," + lng.toFixed(6);
 
-          const best = localResult || results[0];
-
-          return {
-            lat: Number(best.lat),
-            lng: Number(best.lon),
-            label: best.display_name || query
-          };
+          if (!seen.has(key)) {
+            seen.add(key);
+            candidates.push({
+              lat: lat,
+              lng: lng,
+              label: result.display_name || query
+            });
+          }
         }
       }
 
-      return null;
+      if (candidates.length === 0) {
+        return null;
+      }
+
+      // Best option: choose the geocoded point that actually lands inside
+      // one of the uploaded school boundaries for the selected level.
+      for (const candidate of candidates) {
+        const boundaryMatch = findZonedSchool(candidate.lat, candidate.lng, level);
+        if (boundaryMatch) {
+          candidate.boundaryMatch = boundaryMatch;
+          return candidate;
+        }
+      }
+
+      // Fallback: if no candidate falls inside a boundary, return the first one
+      // so the user can see where the geocoder placed the address.
+      return candidates[0];
     }
 
     function pointInRing(point, ring) {
@@ -548,7 +561,7 @@
 
         showMessage("Searching address...");
 
-        const location = await geocodeAddress(address);
+        const location = await geocodeAddress(address, level);
 
         if (!location) {
           showMessage(
@@ -561,7 +574,7 @@
         drawSearchPoint(location.lat, location.lng, location.label);
         showMessage("Checking school boundary...");
 
-        const result = findZonedSchool(location.lat, location.lng, level);
+        const result = location.boundaryMatch || findZonedSchool(location.lat, location.lng, level);
 
         if (!result) {
           showMessage(
