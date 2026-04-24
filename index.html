@@ -186,6 +186,22 @@
     };
 
     // =====================================================
+    // MANUAL ADDRESS OVERRIDES
+    // Use this only when the online geocoder finds the wrong place.
+    // The app will match the text in "match" and return the school you set.
+    // =====================================================
+    const addressOverrides = [
+      {
+        match: "7137 rosemead blvd",
+        level: "High",
+        school: "Pasadena High School",
+        label: "7137 N Rosemead Blvd, San Gabriel",
+        lat: 34.1700,
+        lng: -118.0730
+      }
+    ];
+
+    // =====================================================
     // APP DATA
     // You usually do not need to edit below this line.
     // =====================================================
@@ -446,6 +462,38 @@
       };
     }
 
+    function normalizeText(text) {
+      return String(text || "")
+        .toLowerCase()
+        .replace(/north/g, "n")
+        .replace(/south/g, "s")
+        .replace(/east/g, "e")
+        .replace(/west/g, "w")
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+    }
+
+    function getAddressOverride(address, level) {
+      const normalizedAddress = normalizeText(address);
+
+      return addressOverrides.find(function(item) {
+        return item.level === level && normalizedAddress.includes(normalizeText(item.match));
+      }) || null;
+    }
+
+    function findZoneFeatureBySchoolName(schoolName, level) {
+      const levelZones = zones[level] || [];
+
+      for (const zone of levelZones) {
+        const name = getSchoolName(zone.properties);
+        if (name === schoolName) {
+          return zone;
+        }
+      }
+
+      return null;
+    }
+
     function findZonedSchool(lat, lng, level) {
       const levelZones = zones[level];
       if (!levelZones || levelZones.length === 0) return null;
@@ -556,6 +604,26 @@
 
         if (!address) {
           alert("Please enter an address.");
+          return;
+        }
+
+        const override = getAddressOverride(address, level);
+
+        if (override) {
+          const feature = findZoneFeatureBySchoolName(override.school, level);
+          const location = {
+            lat: override.lat,
+            lng: override.lng,
+            label: override.label + " (manual geocoder correction)"
+          };
+
+          drawSearchPoint(location.lat, location.lng, location.label);
+
+          if (feature) {
+            drawSelectedZone(feature);
+          }
+
+          showMessage(buildSchoolCard(override.school, level, location));
           return;
         }
 
