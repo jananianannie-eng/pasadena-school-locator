@@ -50,7 +50,7 @@
       padding: 14px;
       border: 1px solid #ccc;
       background: #f8f8f8;
-      max-width: 560px;
+      max-width: 650px;
       line-height: 1.45;
     }
 
@@ -60,9 +60,41 @@
       border: 1px solid #ccc;
     }
 
-    .success { color: #087a28; font-weight: bold; }
-    .error { color: #b00020; font-weight: bold; }
-    .small { color: #555; font-size: 13px; }
+    .success {
+      color: #087a28;
+      font-weight: bold;
+    }
+
+    .error {
+      color: #b00020;
+      font-weight: bold;
+    }
+
+    .small {
+      color: #555;
+      font-size: 13px;
+    }
+
+    .school-card {
+      margin-top: 10px;
+      padding: 12px;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+    }
+
+    .school-card h3 {
+      margin: 0 0 8px 0;
+    }
+
+    .school-card p {
+      margin: 7px 0;
+    }
+
+    .school-card a {
+      color: #2f6fed;
+      font-weight: bold;
+    }
   </style>
 </head>
 
@@ -84,8 +116,9 @@
 
   <script>
     // =====================================================
-    // IMPORTANT FOR GITHUB PAGES
-    // Your repo should look like this:
+    // GITHUB FILE SETUP
+    // Your GitHub repo should look like this:
+    //
     // index.html
     // high.json
     // middle.json
@@ -97,6 +130,66 @@
       Middle: "./middle.json",
       Elementary: "./elementary.json"
     };
+
+    // =====================================================
+    // ADD SCHOOL INFORMATION HERE
+    //
+    // IMPORTANT:
+    // The school name must match the school name found in your GeoJSON file.
+    // Example:
+    // "Octavia E. Butler Middle School": { ... }
+    //
+    // You can leave fields blank or delete fields you do not need.
+    // =====================================================
+
+    const schoolInfo = {
+      "Octavia E. Butler Middle School": {
+        description: "Add your description for Octavia E. Butler Middle School here.",
+        address: "Add school address here",
+        phone: "Add phone number here",
+        grades: "6–8",
+        website: ""
+      },
+
+      "Blair High School": {
+        description: "Add your description for Blair High School here.",
+        address: "Add school address here",
+        phone: "Add phone number here",
+        grades: "9–12",
+        website: ""
+      },
+
+      "John Muir High School": {
+        description: "Add your description for John Muir High School here.",
+        address: "Add school address here",
+        phone: "Add phone number here",
+        grades: "9–12",
+        website: ""
+      },
+
+      "Pasadena High School": {
+        description: "Add your description for Pasadena High School here.",
+        address: "Add school address here",
+        phone: "Add phone number here",
+        grades: "9–12",
+        website: ""
+      }
+
+      // To add another school, copy this format:
+      // ,
+      // "School Name Here": {
+      //   description: "Add school description here.",
+      //   address: "Add school address here",
+      //   phone: "Add phone number here",
+      //   grades: "Add grades here",
+      //   website: "Add website link here"
+      // }
+    };
+
+    // =====================================================
+    // APP DATA
+    // You usually do not need to edit below this line.
+    // =====================================================
 
     const zones = {
       High: [],
@@ -131,6 +224,17 @@
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#039;");
+    }
+
+    function makeLink(url, text) {
+      if (!url) return "";
+
+      return (
+        "<p><b>Website:</b> " +
+        "<a href='" + escapeHtml(url) + "' target='_blank' rel='noopener noreferrer'>" +
+        escapeHtml(text || "Visit website") +
+        "</a></p>"
+      );
     }
 
     async function fetchJson(path) {
@@ -218,7 +322,6 @@
     async function geocodeAddress(address) {
       // Do NOT force Pasadena here.
       // Some PUSD addresses are in Altadena, Sierra Madre, etc.
-      // If the user typed only a street address, we add a general local hint.
       const lowerAddress = address.toLowerCase();
       const hasCityOrZip =
         lowerAddress.includes("pasadena") ||
@@ -253,7 +356,6 @@
         return null;
       }
 
-      // Prefer local results near Pasadena / Altadena / Sierra Madre.
       const localResult = results.find(result => {
         const label = (result.display_name || "").toLowerCase();
         return (
@@ -274,8 +376,8 @@
 
     // ---------------- GEOMETRY CHECKS ----------------
     function pointInRing(point, ring) {
-      const x = point[0]; // longitude
-      const y = point[1]; // latitude
+      const x = point[0];
+      const y = point[1];
       let inside = false;
 
       for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
@@ -302,7 +404,6 @@
 
       if (!pointInRing(point, outerRing)) return false;
 
-      // Extra rings are holes. If the point is in a hole, it is not in the polygon.
       for (let i = 1; i < polygon.length; i++) {
         const hole = polygon[i];
         if (hole && hole.length >= 3 && pointInRing(point, hole)) {
@@ -313,6 +414,7 @@
       return true;
     }
 
+    // ---------------- SCHOOL NAME HELPERS ----------------
     function getSchoolName(properties) {
       if (!properties) return "Unknown School";
 
@@ -330,7 +432,7 @@
         "Unknown School"
       );
 
-      // Rename school
+      // Rename school here if the GeoJSON uses an old name.
       if (name === "Washington Middle School") {
         name = "Octavia E. Butler Middle School";
       }
@@ -338,6 +440,41 @@
       return name;
     }
 
+    function getSchoolDetails(schoolName) {
+      return schoolInfo[schoolName] || {
+        description: "No description has been added yet.",
+        address: "N/A",
+        phone: "N/A",
+        grades: "N/A",
+        website: ""
+      };
+    }
+
+    function buildSchoolCard(schoolName, level, location) {
+      const info = getSchoolDetails(schoolName);
+
+      return (
+        "<span class='success'>✅ Zoned School Found</span>" +
+        "<div class='school-card'>" +
+          "<h3>" + escapeHtml(schoolName) + "</h3>" +
+          "<p><b>School level:</b> " + escapeHtml(level) + " School</p>" +
+          "<p><b>Description:</b> " + escapeHtml(info.description || "No description has been added yet.") + "</p>" +
+          "<p><b>Address:</b> " + escapeHtml(info.address || "N/A") + "</p>" +
+          "<p><b>Phone:</b> " + escapeHtml(info.phone || "N/A") + "</p>" +
+          "<p><b>Grades:</b> " + escapeHtml(info.grades || "N/A") + "</p>" +
+          makeLink(info.website, "School website") +
+        "</div>" +
+        "<br>" +
+        "<span class='small'>" +
+          "<b>Geocoded location:</b><br>" +
+          escapeHtml(location.label) +
+          "<br>Lat: " + location.lat.toFixed(6) +
+          ", Lng: " + location.lng.toFixed(6) +
+        "</span>"
+      );
+    }
+
+    // ---------------- FIND ZONED SCHOOL ----------------
     function findZonedSchool(lat, lng, level) {
       const levelZones = zones[level];
 
@@ -345,8 +482,6 @@
         return null;
       }
 
-      // Small tolerance for geocoding/boundary mismatch.
-      // This tests the exact point first, then nearby points.
       const tolerance = 0.0005;
       const testPoints = [
         [lng, lat],
@@ -476,17 +611,7 @@
 
         drawSelectedZone(result.feature);
 
-        showMessage(
-          "<span class='success'>✅ Zoned School Found</span><br><br>" +
-          "<b>School level:</b> " + escapeHtml(level) + " School<br>" +
-          "<b>Zoned school:</b> " + escapeHtml(result.name) + "<br><br>" +
-          "<span class='small'>" +
-          "<b>Geocoded location:</b><br>" +
-          escapeHtml(location.label) +
-          "<br>Lat: " + location.lat.toFixed(6) +
-          ", Lng: " + location.lng.toFixed(6) +
-          "</span>"
-        );
+        showMessage(buildSchoolCard(result.name, level, location));
       } catch (error) {
         console.error(error);
         showMessage(
