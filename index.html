@@ -60,9 +60,20 @@
       border: 1px solid #ccc;
     }
 
-    .success { color: #087a28; font-weight: bold; }
-    .error { color: #b00020; font-weight: bold; }
-    .small { color: #555; font-size: 13px; }
+    .success {
+      color: #087a28;
+      font-weight: bold;
+    }
+
+    .error {
+      color: #b00020;
+      font-weight: bold;
+    }
+
+    .small {
+      color: #555;
+      font-size: 13px;
+    }
 
     .school-card {
       margin-top: 10px;
@@ -105,11 +116,8 @@
 
   <script>
     // =====================================================
-    // FILES IN YOUR GITHUB REPO
-    // These cleaned GeoJSON files should be in the same folder as index.html:
-    // high.json
-    // middle.json
-    // elementary.json
+    // GEOJSON FILES
+    // These files must be in the same GitHub folder as index.html.
     // =====================================================
     const zoneFiles = {
       High: "./high.json",
@@ -118,9 +126,10 @@
     };
 
     // =====================================================
-    // ADD OR EDIT SCHOOL INFORMATION HERE
-    // Use \n inside descriptions for a new line.
-    // Names should match the cleaned GeoJSON names.
+    // SCHOOL INFORMATION
+    // Add or edit descriptions here.
+    // Use \n for a new line inside descriptions.
+    // The names here should be the clean school names.
     // =====================================================
     const schoolInfo = {
       "Pasadena High School": {
@@ -190,6 +199,20 @@
       // }
     };
 
+    // =====================================================
+    // SCHOOL NAME FIXES
+    // This keeps descriptions working even if a GeoJSON file uses an old or short name.
+    // =====================================================
+    const schoolNameFixes = {
+      "Pasadena HS": "Pasadena High School",
+      "Blair HS": "Blair High School",
+      "Muir HS": "John Muir High School",
+      "Washington Middle School": "Octavia E. Butler Middle School"
+    };
+
+    // =====================================================
+    // APP STATE
+    // =====================================================
     const zones = {
       High: [],
       Middle: [],
@@ -212,6 +235,9 @@
       attribution: "&copy; OpenStreetMap contributors"
     }).addTo(map);
 
+    // =====================================================
+    // BASIC HELPERS
+    // =====================================================
     function showMessage(html) {
       box.innerHTML = html;
     }
@@ -239,6 +265,9 @@
       );
     }
 
+    // =====================================================
+    // LOAD GEOJSON FILES
+    // =====================================================
     async function fetchJson(path) {
       const response = await fetch(path + "?v=" + Date.now(), {
         cache: "no-store"
@@ -311,7 +340,7 @@
     zonesLoaded = loadZones();
 
     // =====================================================
-    // GEOMETRY
+    // GEOMETRY HELPERS
     // =====================================================
     function pointInRing(point, ring) {
       const x = point[0];
@@ -352,34 +381,6 @@
       return true;
     }
 
-    function getSchoolName(properties) {
-      if (!properties) return "Unknown School";
-
-      return (
-        properties.name ||
-        properties.Name ||
-        properties.SCHOOL ||
-        properties.School ||
-        properties.school ||
-        properties.SCHOOLNAME ||
-        properties.SCHOOL_NAME ||
-        properties.school_name ||
-        properties.SITE_NAME ||
-        properties.site_name ||
-        "Unknown School"
-      );
-    }
-
-    function getSchoolDetails(schoolName) {
-      return schoolInfo[schoolName] || {
-        description: "No description has been added yet.",
-        address: "N/A",
-        phone: "N/A",
-        grades: "N/A",
-        website: ""
-      };
-    }
-
     function getFeaturePolygons(feature) {
       const geometry = feature.geometry;
       if (!geometry) return [];
@@ -393,49 +394,6 @@
       }
 
       return [];
-    }
-
-    function findZonedSchool(lat, lng, level) {
-      const levelZones = zones[level];
-      if (!levelZones || levelZones.length === 0) return null;
-
-      const tolerance = 0.0005;
-      const testPoints = [
-        [lng, lat],
-        [lng + tolerance, lat],
-        [lng - tolerance, lat],
-        [lng, lat + tolerance],
-        [lng, lat - tolerance],
-        [lng + tolerance, lat + tolerance],
-        [lng - tolerance, lat - tolerance],
-        [lng + tolerance, lat - tolerance],
-        [lng - tolerance, lat + tolerance]
-      ];
-
-      for (const zone of levelZones) {
-        const polygons = getFeaturePolygons(zone);
-
-        for (const polygon of polygons) {
-          for (const point of testPoints) {
-            if (pointInPolygon(point, polygon)) {
-              return {
-                name: getSchoolName(zone.properties),
-                feature: zone
-              };
-            }
-          }
-        }
-      }
-
-      return null;
-    }
-
-    function pointInsideAnyPusdZone(lat, lng) {
-      return (
-        findZonedSchool(lat, lng, "High") ||
-        findZonedSchool(lat, lng, "Middle") ||
-        findZonedSchool(lat, lng, "Elementary")
-      );
     }
 
     function calculateDistrictBounds() {
@@ -489,10 +447,86 @@
     }
 
     // =====================================================
+    // SCHOOL LOOKUP
+    // =====================================================
+    function getSchoolName(properties) {
+      if (!properties) return "Unknown School";
+
+      const rawName = (
+        properties.name ||
+        properties.Name ||
+        properties.SCHOOL ||
+        properties.School ||
+        properties.school ||
+        properties.SCHOOLNAME ||
+        properties.SCHOOL_NAME ||
+        properties.school_name ||
+        properties.SITE_NAME ||
+        properties.site_name ||
+        "Unknown School"
+      );
+
+      return schoolNameFixes[rawName] || rawName;
+    }
+
+    function getSchoolDetails(schoolName) {
+      return schoolInfo[schoolName] || {
+        description: "No description has been added yet.",
+        address: "N/A",
+        phone: "N/A",
+        grades: "N/A",
+        website: ""
+      };
+    }
+
+    function findZonedSchool(lat, lng, level) {
+      const levelZones = zones[level];
+      if (!levelZones || levelZones.length === 0) return null;
+
+      const tolerance = 0.0005;
+      const testPoints = [
+        [lng, lat],
+        [lng + tolerance, lat],
+        [lng - tolerance, lat],
+        [lng, lat + tolerance],
+        [lng, lat - tolerance],
+        [lng + tolerance, lat + tolerance],
+        [lng - tolerance, lat - tolerance],
+        [lng + tolerance, lat - tolerance],
+        [lng - tolerance, lat + tolerance]
+      ];
+
+      for (const zone of levelZones) {
+        const polygons = getFeaturePolygons(zone);
+
+        for (const polygon of polygons) {
+          for (const point of testPoints) {
+            if (pointInPolygon(point, polygon)) {
+              return {
+                name: getSchoolName(zone.properties),
+                feature: zone
+              };
+            }
+          }
+        }
+      }
+
+      return null;
+    }
+
+    function pointInsideAnyPusdZone(lat, lng) {
+      return (
+        findZonedSchool(lat, lng, "High") ||
+        findZonedSchool(lat, lng, "Middle") ||
+        findZonedSchool(lat, lng, "Elementary")
+      );
+    }
+
+    // =====================================================
     // GEOCODING
     // No manual address overrides.
-    // The app asks geocoders for multiple possible results, then only accepts
-    // a result that falls inside your uploaded Pasadena Unified zone files.
+    // The app gathers multiple geocoder results and prefers the one that lands
+    // inside your uploaded Pasadena Unified school zone files.
     // =====================================================
     async function geocodeAddress(address, level) {
       const candidates = [];
@@ -515,7 +549,7 @@
         }
       }
 
-      // Second best: result falls anywhere inside the uploaded PUSD boundaries.
+      // Second best: result falls anywhere inside uploaded PUSD boundaries.
       for (const candidate of candidates) {
         const anyPusdMatch = pointInsideAnyPusdZone(candidate.lat, candidate.lng);
         if (anyPusdMatch) {
@@ -524,7 +558,7 @@
         }
       }
 
-      // Third best: inside the overall bounding box of the uploaded zone files.
+      // Third best: result is inside the overall area covered by your zone files.
       for (const candidate of candidates) {
         if (pointInsideDistrictBounds(candidate.lat, candidate.lng)) {
           candidate.matchQuality = "inside-zone-bounds";
@@ -532,7 +566,6 @@
         }
       }
 
-      // Last fallback: return the first geocoder result so the user can see where it landed.
       candidates[0].matchQuality = "outside-pusd-boundary";
       return candidates[0];
     }
@@ -666,6 +699,9 @@
       }
     }
 
+    // =====================================================
+    // MAP DISPLAY
+    // =====================================================
     function drawSearchPoint(lat, lng, label) {
       if (userMarker) map.removeLayer(userMarker);
 
@@ -689,6 +725,9 @@
       }).addTo(map);
     }
 
+    // =====================================================
+    // RESULT CARD
+    // =====================================================
     function buildSchoolCard(schoolName, level, location) {
       const info = getSchoolDetails(schoolName);
 
@@ -715,6 +754,9 @@
       );
     }
 
+    // =====================================================
+    // MAIN BUTTON ACTION
+    // =====================================================
     async function findSchool() {
       try {
         await zonesLoaded;
