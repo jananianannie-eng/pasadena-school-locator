@@ -172,6 +172,22 @@
         website: ""
       },
 
+      "Washington Accelerated School": {
+        description: "Add your description here.",
+        address: "",
+        phone: "",
+        grades: "K–5",
+        website: ""
+      },
+
+      "Hamilton Elementary School": {
+        description: "Add your description here.",
+        address: "",
+        phone: "",
+        grades: "K–5",
+        website: ""
+      },
+
       "Willard Elementary School": {
         description: "Add your description here.",
         address: "",
@@ -209,6 +225,21 @@
       "Muir HS": "John Muir High School",
       "Washington Middle School": "Octavia E. Butler Middle School"
     };
+
+    // =====================================================
+    // NARROW ADDRESS-RANGE CORRECTIONS
+    // Use these only when a known street range is assigned incorrectly
+    // by the boundary file. This does NOT affect the whole school zone.
+    // =====================================================
+    const addressRangeCorrections = [
+      {
+        street: "e worcester ave",
+        start: 912,
+        end: 1122,
+        level: "Elementary",
+        school: "Washington Accelerated School"
+      }
+    ];
 
     // =====================================================
     // APP STATE
@@ -264,6 +295,42 @@
         "<a href='" + escapeHtml(url) + "' target='_blank' rel='noopener noreferrer'>School website</a>" +
         "</p>"
       );
+    }
+
+    function normalizeAddressText(text) {
+      return String(text || "")
+        .toLowerCase()
+        .replace(/\bnorth\b/g, "n")
+        .replace(/\bsouth\b/g, "s")
+        .replace(/\beast\b/g, "e")
+        .replace(/\bwest\b/g, "w")
+        .replace(/\bavenue\b/g, "ave")
+        .replace(/\bstreet\b/g, "st")
+        .replace(/\broad\b/g, "rd")
+        .replace(/\bboulevard\b/g, "blvd")
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+    }
+
+    function getAddressNumber(address) {
+      const match = String(address || "").trim().match(/^(\d+)/);
+      return match ? Number(match[1]) : null;
+    }
+
+    function getAddressRangeCorrection(address, level) {
+      const number = getAddressNumber(address);
+      if (!number) return null;
+
+      const normalizedAddress = normalizeAddressText(address);
+
+      return addressRangeCorrections.find(function(item) {
+        return (
+          item.level === level &&
+          number >= item.start &&
+          number <= item.end &&
+          normalizedAddress.includes(normalizeAddressText(item.street))
+        );
+      }) || null;
     }
 
     // =====================================================
@@ -523,6 +590,18 @@
         findZonedSchool(lat, lng, "Middle") ||
         findZonedSchool(lat, lng, "Elementary")
       );
+    }
+
+    function findZoneFeatureBySchoolName(schoolName, level) {
+      const levelZones = zones[level] || [];
+
+      for (const zone of levelZones) {
+        if (getSchoolName(zone.properties) === schoolName) {
+          return zone;
+        }
+      }
+
+      return null;
     }
 
     // =====================================================
@@ -848,6 +927,7 @@
 
         const address = document.getElementById("address").value.trim();
         const level = document.getElementById("level").value;
+        const rangeCorrection = getAddressRangeCorrection(address, level);
 
         if (!address) {
           alert("Please enter an address.");
@@ -869,7 +949,6 @@
         drawSearchPoint(location.lat, location.lng, location.label);
         showMessage("Checking school boundary...");
 
-        // First check if the point is inside ANY PUSD zone at all
         const insidePUSD = pointInsideAnyPusdZone(location.lat, location.lng);
 
         if (!insidePUSD) {
@@ -901,8 +980,13 @@
           return;
         }
 
-        drawSelectedZone(result.feature);
-        showMessage(buildSchoolCard(result.name, level, location));
+        const finalSchoolName = rangeCorrection ? rangeCorrection.school : result.name;
+        const correctedFeature = rangeCorrection
+          ? findZoneFeatureBySchoolName(rangeCorrection.school, level)
+          : result.feature;
+
+        drawSelectedZone(correctedFeature || result.feature);
+        showMessage(buildSchoolCard(finalSchoolName, level, location));
       } catch (error) {
         console.error(error);
         showMessage(
