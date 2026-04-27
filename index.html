@@ -230,12 +230,13 @@
     // ADDRESS CORRECTIONS CSV
     // Optional file in GitHub: address-corrections.csv
     // New cleaner format:
-    // street,level,school,start,end,type
-    // lake ave,Elementary,Altadena Elementary School,1200,1400,all
-    // worcester ave,Elementary,Washington Accelerated School,912,1122,even
-    // worcester ave,Elementary,Washington Accelerated School,913,1133,odd
+    // street,level,school,start,end,type,direction
+    // lake ave,Elementary,Altadena Elementary School,1200,1400,all,
+    // worcester ave,Elementary,Washington Accelerated School,912,1122,even,e
+    // worcester ave,Elementary,Washington Accelerated School,913,1133,odd,e
     //
     // type can be: all, even, or odd
+    // direction can be blank, n, s, e, or w
     // =====================================================
     const addressCorrectionsFile = "./address-corrections.csv";
     let addressRangeCorrections = [];
@@ -318,11 +319,23 @@
       return match ? Number(match[0]) : null;
     }
 
+    function getAddressDirection(address) {
+      const normalized = " " + normalizeAddressText(address) + " ";
+
+      if (normalized.includes(" n ")) return "n";
+      if (normalized.includes(" s ")) return "s";
+      if (normalized.includes(" e ")) return "e";
+      if (normalized.includes(" w ")) return "w";
+
+      return "";
+    }
+
     function getAddressRangeCorrection(address, level) {
       const number = getAddressNumber(address);
       if (!number) return null;
 
       const normalizedAddress = normalizeAddressText(address);
+      const addressDirection = getAddressDirection(address);
 
       for (const item of addressRangeCorrections) {
         if (item.level !== level) continue;
@@ -330,6 +343,11 @@
         if (number < item.start || number > item.end) continue;
 
         const type = String(item.type || "all").toLowerCase();
+        const ruleDirection = String(item.direction || "").toLowerCase();
+
+        // If the CSV direction is blank, the rule applies to all directions.
+        // If the CSV direction is n/s/e/w, the typed address must match it.
+        if (ruleDirection && ruleDirection !== addressDirection) continue;
 
         if (type === "all") {
           return item.school;
@@ -412,7 +430,8 @@
             school: row.school,
             start: Number(row.start),
             end: Number(row.end),
-            type: row.type || "all"
+            type: row.type || "all",
+            direction: row.direction || ""
           });
           continue;
         }
@@ -426,7 +445,8 @@
             school: row.school,
             start: Number(row.evenstart),
             end: Number(row.evenend),
-            type: "even"
+            type: "even",
+            direction: row.direction || ""
           });
         }
 
@@ -437,7 +457,8 @@
             school: row.school,
             start: Number(row.oddstart),
             end: Number(row.oddend),
-            type: "odd"
+            type: "odd",
+            direction: row.direction || ""
           });
         }
       }
@@ -448,7 +469,8 @@
         item.school &&
         Number.isFinite(item.start) &&
         Number.isFinite(item.end) &&
-        ["all", "even", "odd"].includes(String(item.type || "all").toLowerCase())
+        ["all", "even", "odd"].includes(String(item.type || "all").toLowerCase()) &&
+        ["", "n", "s", "e", "w"].includes(String(item.direction || "").toLowerCase())
       );
     }
 
