@@ -7,6 +7,7 @@
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
   <style>
     body {
@@ -110,6 +111,17 @@
   </select>
 
   <button id="findBtn" onclick="findSchool()" disabled>Loading zoning data...</button>
+
+  <hr>
+
+  <h3>Bulk Address Range Processor</h3>
+  <p class="small">
+    Upload a CSV or Excel file with columns like:
+    Low Number, High Number, O/E, Dir, Street Name, City Name, Zip Code
+  </p>
+  <input type="file" id="bulkFile" accept=".csv,.xlsx,.xls" />
+  <button id="bulkBtn" onclick="processBulkFile()" disabled>Process Bulk File</button>
+  <button id="downloadBtn" onclick="downloadBulkResults()" disabled>Download Results CSV</button>
 
   <div id="box">Loading zoning data...</div>
   <div id="map"></div>
@@ -257,9 +269,12 @@
     let selectedZoneLayer = null;
     let districtBoundaryLayer = null;
     let districtBounds = null;
+    let bulkResults = [];
 
     const box = document.getElementById("box");
     const findBtn = document.getElementById("findBtn");
+    const bulkBtn = document.getElementById("bulkBtn");
+    const downloadBtn = document.getElementById("downloadBtn");
 
     const map = L.map("map").setView([34.1478, -118.1445], 12);
 
@@ -501,6 +516,7 @@
         zonesAreLoaded = true;
         findBtn.disabled = false;
         findBtn.textContent = "Find School";
+        bulkBtn.disabled = false;
 
         console.log("Loaded zones:", {
           High: zones.High.length,
@@ -1040,6 +1056,239 @@
           "<br>Match: " + escapeHtml(location.matchQuality || "boundary check") +
         "</span>"
       );
+    }
+
+    // =====================================================
+    // BULK PROCESSING
+    // =====================================================
+    function normalizeHeader(value) {
+      return String(value || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "")
+        .trim();
+    }
+
+    function getRowValue(row, possibleNames) {
+      const normalizedMap = {};
+
+      for (const key of Object.keys(row)) {
+        normalizedMap[normalizeHeader(key)] = row[key];
+      }
+
+      for (const name of possibleNames) {
+        const value = normalizedMap[normalizeHeader(name)];
+        if (value !== undefined && value !== null && String(value).trim() !== "") {
+          return value;
+        }
+      }
+
+      return "";
+    }
+
+    function cleanBulkType(value) {
+      const text = String(value || "").trim().toLowerCase();
+      if (text === "e" || text === "even") return "even";
+      if (text === "o" || text === "odd") return "odd";
+      return "all";
+    }
+
+    function cleanBulkDirection(value) {
+      const text = String(value || "").trim().toLowerCase();
+      if (["n", "s", "e", "w"].includes(text)) return text;
+      return "";
+    }
+
+    function buildBulkAddress(row) {
+      const low = getRowValue(row, ["Low Number", "Low", "start", "Start"]);
+      const direction = getRowValue(row, ["Dir", "Direction"]);
+      const street = getRowValue(row, ["Street Name", "Street", "street"]);
+      const city = getRowValue(row, ["City Name", "City", "city"]);
+      const zip = getRowValue(row, ["Zip Code", "Zip", "zip"]);
+
+      return [low, direction, street, city, "CA", zip]
+        .map(value => String(value || "").trim())
+        .filter(Boolean)
+        .join(" ");
+    }
+
+    async function readBulkSpreadsheet(file) {
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: "array" });
+      const firstSheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[firstSheetName];
+      return XLSX.utils.sheet_to_json(sheet, { defval: "" });
+    }
+
+    async function processBulkFile() {
+      try {
+        await zonesLoaded;
+
+        if (!zonesAreLoaded) {
+          showMessage("<span class='error'>❌ Zoning data is not loaded yet.</span>");
+          return;
+        }
+
+        const fileInput = document.getElementById("bulkFile");
+        const file = fileInput.files[0];
+
+        if (!file) {
+          alert("Please choose a CSV or Excel file first.");
+          return;
+        }
+
+        bulkBtn.disabled = true;
+        downloadBtn.disabled = true;
+        bulkResults = [];
+
+        showMessage("Reading bulk file...");
+
+        const rows = await readBulkSpreadsheet(file);
+
+        if (!rows || rows.length === 0) {
+          showMessage("<span class='error'>❌ No rows found in the uploaded file.</span>");
+          bulkBtn.disabled = false;
+          return;
+        }
+
+        const maxRows = rows.length;
+
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i];
+
+          const low = getRowValue(row, ["Low Number", "Low", "start", "Start"]);
+          const high = getRowValue(row, ["High Number", "High", "end", "End"]);
+          const type = cleanBulkType(getRowValue(row, ["O/E", "OE", "type", "Odd/Even"]));
+          const direction = cleanBulkDirection(getRowValue(row, ["Dir", "Direction"]));
+          const street = getRowValue(row, ["Street Name", "Street", "street"]);
+          const city = getRowValue(row, ["City Name", "City", "city"]);
+          const zip = getRowValue(row, ["Zip Code", "Zip", "zip"]);
+          const testAddress = buildBulkAddress(row);
+
+          showMessage(
+            "Processing row " + (i + 1) + " of " + maxRows + "...<br>" +
+            escapeHtml(testAddress)
+          );
+
+          let elementary = "";
+          let middle = "";
+          let highSchool = "";
+          let status = "OK";
+          let lat = "";
+          let lng = "";
+          let geocoderLabel = "";
+
+          try {
+            const location = await geocodeAddress(testAddress, "Elementary");
+
+            if (!location) {
+              status = "Address not found";
+            } else {
+              lat = location.lat.toFixed(6);
+              lng = location.lng.toFixed(6);
+              geocoderLabel = location.label;
+
+              const insidePUSD = pointInsideAnyPusdZone(location.lat, location.lng);
+
+              if (!insidePUSD) {
+                status = "Outside PUSD boundary";
+              } else {
+                const elementaryResult = findZonedSchool(location.lat, location.lng, "Elementary");
+                const middleResult = findZonedSchool(location.lat, location.lng, "Middle");
+                const highResult = findZonedSchool(location.lat, location.lng, "High");
+
+                elementary = elementaryResult ? elementaryResult.name : "";
+                middle = middleResult ? middleResult.name : "";
+                highSchool = highResult ? highResult.name : "";
+              }
+            }
+          } catch (error) {
+            status = "Error: " + (error.message || error);
+          }
+
+          bulkResults.push({
+            start: low,
+            end: high,
+            type: type,
+            direction: direction,
+            street: street,
+            city: city,
+            zip: zip,
+            testAddress: testAddress,
+            elementary: elementary,
+            middle: middle,
+            high: highSchool,
+            status: status,
+            lat: lat,
+            lng: lng,
+            geocoderLabel: geocoderLabel
+          });
+        }
+
+        showMessage(
+          "<span class='success'>✅ Bulk processing complete.</span><br>" +
+          "Rows processed: " + bulkResults.length + "<br>" +
+          "Click <b>Download Results CSV</b>."
+        );
+
+        downloadBtn.disabled = false;
+        bulkBtn.disabled = false;
+      } catch (error) {
+        console.error(error);
+        showMessage("<span class='error'>❌ Bulk error:</span><br>" + escapeHtml(error.message || error));
+        bulkBtn.disabled = false;
+      }
+    }
+
+    function csvEscape(value) {
+      const text = String(value ?? "");
+      if (text.includes(",") || text.includes('"') || text.includes("
+")) {
+        return '"' + text.replaceAll('"', '""') + '"';
+      }
+      return text;
+    }
+
+    function downloadBulkResults() {
+      if (!bulkResults || bulkResults.length === 0) {
+        alert("No bulk results to download yet.");
+        return;
+      }
+
+      const headers = [
+        "start",
+        "end",
+        "type",
+        "direction",
+        "street",
+        "city",
+        "zip",
+        "testAddress",
+        "elementary",
+        "middle",
+        "high",
+        "status",
+        "lat",
+        "lng",
+        "geocoderLabel"
+      ];
+
+      const lines = [headers.join(",")];
+
+      for (const row of bulkResults) {
+        lines.push(headers.map(header => csvEscape(row[header])).join(","));
+      }
+
+      const blob = new Blob([lines.join("
+")], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "bulk-school-results.csv";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
     }
 
     // =====================================================
