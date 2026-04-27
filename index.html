@@ -223,6 +223,7 @@
     let zonesAreLoaded = false;
     let userMarker = null;
     let selectedZoneLayer = null;
+    let districtBoundaryLayer = null;
     let districtBounds = null;
 
     const box = document.getElementById("box");
@@ -311,6 +312,8 @@
           Elementary: zones.Elementary.length,
           districtBounds: districtBounds
         });
+
+        drawDistrictBoundary();
 
         showMessage(
           "<span class='success'>✅ Zoning data loaded.</span><br>" +
@@ -780,6 +783,28 @@
       }).addTo(map);
     }
 
+    function drawDistrictBoundary() {
+      if (districtBoundaryLayer) map.removeLayer(districtBoundaryLayer);
+
+      const allFeatures = [];
+
+      for (const level of ["High", "Middle", "Elementary"]) {
+        for (const feature of zones[level]) {
+          allFeatures.push(feature);
+        }
+      }
+
+      districtBoundaryLayer = L.geoJSON(allFeatures, {
+        style: {
+          color: "#444",
+          weight: 1,
+          fillOpacity: 0.04
+        }
+      }).addTo(map);
+
+      districtBoundaryLayer.bringToBack();
+    }
+
     // =====================================================
     // RESULT CARD
     // =====================================================
@@ -843,6 +868,19 @@
 
         drawSearchPoint(location.lat, location.lng, location.label);
         showMessage("Checking school boundary...");
+
+        // First check if the point is inside ANY PUSD zone at all
+        const insidePUSD = pointInsideAnyPusdZone(location.lat, location.lng);
+
+        if (!insidePUSD) {
+          showMessage(
+            "<span class='error'>❌ Address is outside Pasadena Unified School District boundaries.</span><br><br>" +
+            "<b>Geocoded location:</b><br>" + escapeHtml(location.label) +
+            "<br>Lat: " + location.lat.toFixed(6) +
+            ", Lng: " + location.lng.toFixed(6)
+          );
+          return;
+        }
 
         const result = location.boundaryMatch || findZonedSchool(location.lat, location.lng, level);
 
