@@ -1,4 +1,4 @@
 street,level,school,start,end,type,direction
-worcester ave,Elementary,Washington Accelerated School,912,1122,even,e
-worcester ave,Elementary,Washington Accelerated School,913,1133,odd,e
+worcester ave,Elementary,Washington Accelerated School,912,1122,even
+worcester ave,Elementary,Washington Accelerated School,913,1133,odd
 lake ave,Elementary,Altadena Elementary School,1200,1400,all,n
