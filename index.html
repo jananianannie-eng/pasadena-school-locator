@@ -126,6 +126,43 @@
       color: #2f6fed;
       font-weight: bold;
     }
+
+    .comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      background: white;
+    }
+
+    .comparison-table th,
+    .comparison-table td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .comparison-table th {
+      background: #f0f0f0;
+    }
+
+    .match {
+      background: #e8f7ee;
+      color: #087a28;
+      font-weight: bold;
+    }
+
+    .mismatch {
+      background: #fdeaea;
+      color: #b00020;
+      font-weight: bold;
+    }
+
+    .missing {
+      background: #fff7df;
+      color: #7a5200;
+      font-weight: bold;
+    }
   </style>
 </head>
 
@@ -1176,6 +1213,84 @@
       );
     }
 
+    function normalizeSchoolForCompare(name) {
+      const fixed = schoolNameFixes[name] || name || "";
+      return String(fixed).toLowerCase().replace(/[^a-z0-9]+/g, "").trim();
+    }
+
+    function comparisonClass(csvSchool, mapSchool) {
+      if (!csvSchool || !mapSchool) return "missing";
+      return normalizeSchoolForCompare(csvSchool) === normalizeSchoolForCompare(mapSchool)
+        ? "match"
+        : "mismatch";
+    }
+
+    function comparisonLabel(csvSchool, mapSchool) {
+      if (!csvSchool && !mapSchool) return "Missing both";
+      if (!csvSchool) return "Missing in CSV";
+      if (!mapSchool) return "Missing on map";
+      return normalizeSchoolForCompare(csvSchool) === normalizeSchoolForCompare(mapSchool)
+        ? "Match"
+        : "Mismatch";
+    }
+
+    function buildComparisonCard(rangeMatch, geoResults, location) {
+      const csvElementary = rangeMatch ? rangeMatch.elementary : "";
+      const csvMiddle = rangeMatch ? rangeMatch.middle : "";
+      const csvHigh = rangeMatch ? rangeMatch.high : "";
+
+      const geoElementary = geoResults.elementary || "";
+      const geoMiddle = geoResults.middle || "";
+      const geoHigh = geoResults.high || "";
+
+      function row(label, csvSchool, mapSchool) {
+        const rowClass = comparisonClass(csvSchool, mapSchool);
+        return (
+          "<tr class='" + rowClass + "'>" +
+            "<td>" + escapeHtml(label) + "</td>" +
+            "<td>" + escapeHtml(csvSchool || "—") + "</td>" +
+            "<td>" + escapeHtml(mapSchool || "—") + "</td>" +
+            "<td>" + escapeHtml(comparisonLabel(csvSchool, mapSchool)) + "</td>" +
+          "</tr>"
+        );
+      }
+
+      let matchedRangeText = "No CSV range matched";
+      if (rangeMatch) {
+        matchedRangeText =
+          rangeMatch.low + "–" + rangeMatch.high + " " +
+          (rangeMatch.direction ? rangeMatch.direction.toUpperCase() + " " : "") +
+          rangeMatch.street;
+      }
+
+      return (
+        "<div class='school-card'>" +
+          "<h3>📊 CSV vs Map Validation</h3>" +
+          "<p><b>Matched CSV range:</b> " + escapeHtml(matchedRangeText) + "</p>" +
+          "<table class='comparison-table'>" +
+            "<tr>" +
+              "<th>Level</th>" +
+              "<th>CSV result</th>" +
+              "<th>Map / GeoJSON result</th>" +
+              "<th>Status</th>" +
+            "</tr>" +
+            row("Elementary", csvElementary, geoElementary) +
+            row("Middle", csvMiddle, geoMiddle) +
+            row("High", csvHigh, geoHigh) +
+          "</table>" +
+          "<p class='small'>Green = match. Red = mismatch. Yellow = missing result.</p>" +
+        "</div>" +
+        "<br>" +
+        "<span class='small'>" +
+          "<b>Geocoded location:</b><br>" +
+          escapeHtml(location.label) +
+          "<br>Lat: " + location.lat.toFixed(6) +
+          ", Lng: " + location.lng.toFixed(6) +
+          "<br>Source: " + escapeHtml(location.source || "geocoder") +
+        "</span>"
+      );
+    }
+
     // =====================================================
     // MAIN BUTTON ACTION
     // =====================================================
@@ -1199,32 +1314,7 @@
 
         const rangeMatch = findAddressRangeMatch(address);
 
-        if (rangeMatch) {
-          let schoolFromRange = "";
-
-          if (level === "Elementary") schoolFromRange = rangeMatch.elementary;
-          if (level === "Middle") schoolFromRange = rangeMatch.middle;
-          if (level === "High") schoolFromRange = rangeMatch.high;
-
-          if (schoolFromRange) {
-            showMessage(
-              "<span class='success'>✅ Zoned School Found</span>" +
-              "<div class='school-card'>" +
-                "<h3>" + escapeHtml(schoolFromRange) + "</h3>" +
-                "<p><b>School level:</b> " + escapeHtml(level) + " School</p>" +
-                "<p><b>Source:</b> address-ranges.csv</p>" +
-                "<p><b>Matched range:</b> " +
-                  escapeHtml(rangeMatch.low) + "–" + escapeHtml(rangeMatch.high) + " " +
-                  escapeHtml(rangeMatch.direction ? rangeMatch.direction.toUpperCase() + " " : "") +
-                  escapeHtml(rangeMatch.street) +
-                "</p>" +
-              "</div>"
-            );
-            return;
-          }
-        }
-
-        showMessage("Searching address and checking school boundaries... Please wait.");
+        showMessage("Checking CSV and map boundaries side-by-side... Please wait.");
 
         const location = await geocodeAddress(address, level);
 
@@ -1251,32 +1341,26 @@
           return;
         }
 
-        const result = location.boundaryMatch || findZonedSchool(location.lat, location.lng, level);
+        const elementaryResult = findZonedSchool(location.lat, location.lng, "Elementary");
+        const middleResult = findZonedSchool(location.lat, location.lng, "Middle");
+        const highResult = findZonedSchool(location.lat, location.lng, "High");
 
-        if (!result) {
-          showMessage(
-            "<span class='error'>❌ No zoned school found.</span><br><br>" +
-            "The address was found, but none of the geocoder results landed inside any " +
-            escapeHtml(level) +
-            " school boundary from your uploaded zone files.<br><br>" +
-            "<b>Best geocoded location:</b><br>" +
-            escapeHtml(location.label) +
-            "<br><br>" +
-            "<b>Coordinates:</b><br>" +
-            "Lat: " + location.lat.toFixed(6) + "<br>" +
-            "Lng: " + location.lng.toFixed(6) + "<br><br>" +
-            "<span class='small'>This usually means the online geocoder is choosing the wrong place for the typed address, or the address is outside the uploaded boundary files.</span>"
-          );
-          return;
+        const geoResults = {
+          elementary: elementaryResult ? elementaryResult.name : "",
+          middle: middleResult ? middleResult.name : "",
+          high: highResult ? highResult.name : ""
+        };
+
+        const selectedResult =
+          level === "Elementary" ? elementaryResult :
+          level === "Middle" ? middleResult :
+          highResult;
+
+        if (selectedResult) {
+          drawSelectedZone(selectedResult.feature);
         }
 
-        const finalSchoolName = rangeCorrection || result.name;
-        const finalFeature = rangeCorrection
-          ? findZoneFeatureBySchoolName(finalSchoolName, level)
-          : result.feature;
-
-        drawSelectedZone(finalFeature || result.feature);
-        showMessage(buildSchoolCard(finalSchoolName, level, location));
+        showMessage(buildComparisonCard(rangeMatch, geoResults, location));
       } catch (error) {
         console.error(error);
         showMessage(
