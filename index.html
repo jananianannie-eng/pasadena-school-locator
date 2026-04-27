@@ -9,6 +9,37 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
+  <script>
+    window.addEventListener("error", function(event) {
+      const message = event.message || "Unknown JavaScript error";
+      const line = event.lineno ? " Line: " + event.lineno : "";
+      window.__pageError = message + line;
+
+      setTimeout(function() {
+        const box = document.getElementById("box");
+        if (box) {
+          box.innerHTML =
+            "<span style='color:#b00020;font-weight:bold;'>❌ Page error:</span><br>" +
+            String(window.__pageError);
+        }
+      }, 300);
+    });
+
+    window.addEventListener("unhandledrejection", function(event) {
+      const message = event.reason && event.reason.message ? event.reason.message : String(event.reason || "Unknown promise error");
+      window.__pageError = message;
+
+      setTimeout(function() {
+        const box = document.getElementById("box");
+        if (box) {
+          box.innerHTML =
+            "<span style='color:#b00020;font-weight:bold;'>❌ Loading error:</span><br>" +
+            String(window.__pageError);
+        }
+      }, 300);
+    });
+  </script>
+
   <style>
     body {
       font-family: Arial, sans-serif;
