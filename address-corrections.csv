@@ -1,2 +1,3 @@
-street,level,school,evenStart,evenEnd,oddStart,oddEnd
-worcester ave,Elementary,Washington Accelerated School,912,1122,913,1133
+street,level,school,start,end,type
+worcester ave,Elementary,Washington Accelerated School,912,1122,even
+worcester ave,Elementary,Washington Accelerated School,913,1133,odd
