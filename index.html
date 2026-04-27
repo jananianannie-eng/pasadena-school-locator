@@ -1,1000 +1,274 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pasadena Zoned School Locator</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Pasadena Zoned School Locator</title>
 
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 20px;
-      color: #222;
-    }
-
-    h2 {
-      margin-top: 0;
-    }
-
-    input,
-    select,
-    button {
-      display: block;
-      width: 390px;
-      max-width: 100%;
-      padding: 10px;
-      margin: 10px 0;
-      font-size: 15px;
-      box-sizing: border-box;
-    }
-
-    button {
-      background: #2f6fed;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-weight: bold;
-    }
-
-    button:disabled {
-      background: #999;
-      cursor: not-allowed;
-    }
-
-    #box {
-      margin-top: 15px;
-      padding: 14px;
-      border: 1px solid #ccc;
-      background: #f8f8f8;
-      max-width: 720px;
-      line-height: 1.45;
-    }
-
-    #map {
-      height: 500px;
-      margin-top: 15px;
-      border: 1px solid #ccc;
-    }
-
-    .success {
-      color: #087a28;
-      font-weight: bold;
-    }
-
-    .error {
-      color: #b00020;
-      font-weight: bold;
-    }
-
-    .small {
-      color: #555;
-      font-size: 13px;
-    }
-
-    .school-card {
-      margin-top: 10px;
-      padding: 12px;
-      background: white;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-    }
-
-    .school-card h3 {
-      margin: 0 0 8px 0;
-    }
-
-    .school-card p {
-      margin: 7px 0;
-    }
-
-    .school-card a {
-      color: #2f6fed;
-      font-weight: bold;
-    }
-  </style>
+<style>
+body { font-family: Arial; margin: 20px; }
+#map { height: 500px; margin-top: 15px; }
+#box { margin-top: 10px; padding: 12px; border: 1px solid #ccc; max-width: 650px; background:#f9f9f9; }
+input, select, button { padding: 8px; margin: 5px 0; width: 320px; }
+button { background:#2f6fed; color:white; border:none; cursor:pointer; }
+.success { color:green; font-weight:bold; }
+.error { color:red; font-weight:bold; }
+</style>
 </head>
 
 <body>
-  <h2>Pasadena Zoned School Locator</h2>
-
-  <input id="address" placeholder="Enter address, e.g. 7137 N Rosemead Blvd, San Gabriel" />
-
-  <select id="level">
-    <option value="High">High School</option>
-    <option value="Middle">Middle School</option>
-    <option value="Elementary">Elementary School</option>
-  </select>
-
-  <button id="findBtn" onclick="findSchool()" disabled>Loading zoning data...</button>
-
-  <div id="box">Loading zoning data...</div>
-  <div id="map"></div>
-
-  <script>
-    // =====================================================
-    // GEOJSON FILES
-    // These files must be in the same GitHub folder as index.html.
-    // =====================================================
-    const zoneFiles = {
-      High: "./high.json",
-      Middle: "./middle.json",
-      Elementary: "./elementary.json"
-    };
-
-    // =====================================================
-    // SCHOOL INFORMATION
-    // Add or edit descriptions here.
-    // Use \n for a new line inside descriptions.
-    // The names here should be the clean school names.
-    // =====================================================
-    const schoolInfo = {
-      "Pasadena High School": {
-        description: "PHS offers a variety of outstanding curricular and extra-curricular programs.\nAdvanced Placement classes, language courses, college-level Math Academy courses,\nand strong athletic programs.",
-        address: "2925 E Sierra Madre Blvd",
-        phone: "(626) 396-5880",
-        grades: "9–12",
-        website: ""
-      },
-
-      "Blair High School": {
-        description: "Add your description here.",
-        address: "",
-        phone: "",
-        grades: "9–12",
-        website: ""
-      },
-
-      "John Muir High School": {
-        description: "Add your description here.",
-        address: "",
-        phone: "",
-        grades: "9–12",
-        website: ""
-      },
-
-      "McKinley Middle School": {
-        description: "Add your description here.",
-        address: "",
-        phone: "",
-        grades: "6–8",
-        website: ""
-      },
-
-      "Octavia E. Butler Middle School": {
-        description: "Add your description here.",
-        address: "",
-        phone: "",
-        grades: "6–8",
-        website: ""
-      },
-
-      "Washington Accelerated School": {
-        description: "Add your description here.",
-        address: "",
-        phone: "",
-        grades: "K–5",
-        website: ""
-      },
-
-      "Hamilton Elementary School": {
-        description: "Add your description here.",
-        address: "",
-        phone: "",
-        grades: "K–5",
-        website: ""
-      },
-
-      "Willard Elementary School": {
-        description: "Add your description here.",
-        address: "",
-        phone: "",
-        grades: "K–5",
-        website: ""
-      },
-
-      "Altadena Elementary School": {
-        description: "Add your description here.",
-        address: "",
-        phone: "",
-        grades: "K–5",
-        website: ""
-      }
-
-      // To add another school, copy this format:
-      // ,
-      // "School Name Here": {
-      //   description: "Line one.\nLine two.",
-      //   address: "School address here",
-      //   phone: "Phone number here",
-      //   grades: "Grades here",
-      //   website: "Website link here"
-      // }
-    };
-
-    // =====================================================
-    // SCHOOL NAME FIXES
-    // This keeps descriptions working even if a GeoJSON file uses an old or short name.
-    // =====================================================
-    const schoolNameFixes = {
-      "Pasadena HS": "Pasadena High School",
-      "Blair HS": "Blair High School",
-      "Muir HS": "John Muir High School",
-      "Washington Middle School": "Octavia E. Butler Middle School"
-    };
-
-    // =====================================================
-    // NARROW ADDRESS-RANGE CORRECTIONS
-    // Use these only when a known street range is assigned incorrectly
-    // by the boundary file. This does NOT affect the whole school zone.
-    // =====================================================
-    const addressRangeCorrections = [
-      {
-        street: "e worcester ave",
-        start: 912,
-        end: 1122,
-        level: "Elementary",
-        school: "Washington Accelerated School"
-      }
-    ];
-
-    // =====================================================
-    // APP STATE
-    // =====================================================
-    const zones = {
-      High: [],
-      Middle: [],
-      Elementary: []
-    };
-
-    let zonesLoaded = null;
-    let zonesAreLoaded = false;
-    let userMarker = null;
-    let selectedZoneLayer = null;
-    let districtBoundaryLayer = null;
-    let districtBounds = null;
-
-    const box = document.getElementById("box");
-    const findBtn = document.getElementById("findBtn");
-
-    const map = L.map("map").setView([34.1478, -118.1445], 12);
-
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap contributors"
-    }).addTo(map);
-
-    // =====================================================
-    // BASIC HELPERS
-    // =====================================================
-    function showMessage(html) {
-      box.innerHTML = html;
-    }
-
-    function escapeHtml(value) {
-      return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-    }
-
-    function formatDescription(text) {
-      return escapeHtml(text || "No description has been added yet.").replaceAll("\n", "<br>");
-    }
-
-    function makeWebsiteLink(url) {
-      if (!url) return "";
-
-      return (
-        "<p><b>Website:</b> " +
-        "<a href='" + escapeHtml(url) + "' target='_blank' rel='noopener noreferrer'>School website</a>" +
-        "</p>"
-      );
-    }
-
-    function normalizeAddressText(text) {
-      return String(text || "")
-        .toLowerCase()
-        .replace(/\bnorth\b/g, "n")
-        .replace(/\bsouth\b/g, "s")
-        .replace(/\beast\b/g, "e")
-        .replace(/\bwest\b/g, "w")
-        .replace(/\bavenue\b/g, "ave")
-        .replace(/\bstreet\b/g, "st")
-        .replace(/\broad\b/g, "rd")
-        .replace(/\bboulevard\b/g, "blvd")
-        .replace(/[^a-z0-9]+/g, " ")
-        .trim();
-    }
-
-    function getAddressNumber(address) {
-      const match = String(address || "").trim().match(/^(\d+)/);
-      return match ? Number(match[1]) : null;
-    }
-
-    function getAddressRangeCorrection(address, level) {
-      const number = getAddressNumber(address);
-      if (!number) return null;
-
-      const normalizedAddress = normalizeAddressText(address);
-
-      return addressRangeCorrections.find(function(item) {
-        return (
-          item.level === level &&
-          number >= item.start &&
-          number <= item.end &&
-          normalizedAddress.includes(normalizeAddressText(item.street))
-        );
-      }) || null;
-    }
-
-    // =====================================================
-    // LOAD GEOJSON FILES
-    // =====================================================
-    async function fetchJson(path) {
-      const response = await fetch(path + "?v=" + Date.now(), {
-        cache: "no-store"
-      });
-
-      if (!response.ok) {
-        throw new Error(path + " failed to load. Status: " + response.status);
-      }
-
-      return await response.json();
-    }
-
-    async function loadZones() {
-      try {
-        zonesAreLoaded = false;
-        findBtn.disabled = true;
-        findBtn.textContent = "Loading zoning data...";
-
-        showMessage("Loading <b>high.json</b>...");
-        const highData = await fetchJson(zoneFiles.High);
-
-        showMessage("✅ high.json loaded<br>Loading <b>middle.json</b>...");
-        const middleData = await fetchJson(zoneFiles.Middle);
-
-        showMessage("✅ high.json loaded<br>✅ middle.json loaded<br>Loading <b>elementary.json</b>...");
-        const elementaryData = await fetchJson(zoneFiles.Elementary);
-
-        zones.High = highData.features || [];
-        zones.Middle = middleData.features || [];
-        zones.Elementary = elementaryData.features || [];
-
-        districtBounds = calculateDistrictBounds();
-
-        zonesAreLoaded = true;
-        findBtn.disabled = false;
-        findBtn.textContent = "Find School";
-
-        console.log("Loaded zones:", {
-          High: zones.High.length,
-          Middle: zones.Middle.length,
-          Elementary: zones.Elementary.length,
-          districtBounds: districtBounds
-        });
-
-        drawDistrictBoundary();
-
-        showMessage(
-          "<span class='success'>✅ Zoning data loaded.</span><br>" +
-          "High zones: " + zones.High.length + "<br>" +
-          "Middle zones: " + zones.Middle.length + "<br>" +
-          "Elementary zones: " + zones.Elementary.length + "<br><br>" +
-          "Enter an address and choose a school level."
-        );
-      } catch (error) {
-        console.error("Zone loading error:", error);
-
-        zonesAreLoaded = false;
-        findBtn.disabled = true;
-        findBtn.textContent = "Zoning files failed to load";
-
-        showMessage(
-          "<span class='error'>❌ Zoning files failed to load.</span><br><br>" +
-          escapeHtml(error.message || error) +
-          "<br><br>Make sure these files are in the same GitHub folder as index.html:<br>" +
-          "<b>high.json</b><br>" +
-          "<b>middle.json</b><br>" +
-          "<b>elementary.json</b>"
-        );
-      }
-    }
-
-    zonesLoaded = loadZones();
-
-    // =====================================================
-    // GEOMETRY HELPERS
-    // =====================================================
-    function pointInRing(point, ring) {
-      const x = point[0];
-      const y = point[1];
-      let inside = false;
-
-      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-        const xi = ring[i][0];
-        const yi = ring[i][1];
-        const xj = ring[j][0];
-        const yj = ring[j][1];
-
-        const intersect =
-          ((yi > y) !== (yj > y)) &&
-          (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi);
-
-        if (intersect) inside = !inside;
-      }
-
-      return inside;
-    }
-
-    function pointInPolygon(point, polygon) {
-      if (!polygon || polygon.length === 0) return false;
-
-      const outerRing = polygon[0];
-      if (!outerRing || outerRing.length < 3) return false;
-
-      if (!pointInRing(point, outerRing)) return false;
-
-      for (let i = 1; i < polygon.length; i++) {
-        const hole = polygon[i];
-        if (hole && hole.length >= 3 && pointInRing(point, hole)) {
-          return false;
-        }
-      }
-
-      return true;
-    }
-
-    function getFeaturePolygons(feature) {
-      const geometry = feature.geometry;
-      if (!geometry) return [];
-
-      if (geometry.type === "Polygon") {
-        return [geometry.coordinates];
-      }
-
-      if (geometry.type === "MultiPolygon") {
-        return geometry.coordinates;
-      }
-
-      return [];
-    }
-
-    function calculateDistrictBounds() {
-      let minLng = Infinity;
-      let minLat = Infinity;
-      let maxLng = -Infinity;
-      let maxLat = -Infinity;
-
-      for (const level of ["High", "Middle", "Elementary"]) {
-        for (const feature of zones[level]) {
-          const polygons = getFeaturePolygons(feature);
-
-          for (const polygon of polygons) {
-            for (const ring of polygon) {
-              for (const coordinate of ring) {
-                const lng = coordinate[0];
-                const lat = coordinate[1];
-
-                if (lng < minLng) minLng = lng;
-                if (lat < minLat) minLat = lat;
-                if (lng > maxLng) maxLng = lng;
-                if (lat > maxLat) maxLat = lat;
-              }
-            }
-          }
-        }
-      }
-
-      if (!isFinite(minLng) || !isFinite(minLat) || !isFinite(maxLng) || !isFinite(maxLat)) {
-        return null;
-      }
-
-      const padding = 0.01;
+
+<h2>Pasadena Zoned School Locator</h2>
+
+<input id="address" placeholder="Enter address"/>
+<select id="level">
+<option value="High">High School</option>
+<option value="Middle">Middle School</option>
+<option value="Elementary">Elementary School</option>
+</select>
+
+<button onclick="findSchool()" id="btn" disabled>Loading...</button>
+
+<div id="box">Loading zoning data...</div>
+<div id="map"></div>
+
+<script>
+
+// ========================= FILES =========================
+const zoneFiles = {
+  High: "./high.json",
+  Middle: "./middle.json",
+  Elementary: "./elementary.json"
+};
+
+const correctionsFile = "./address-corrections.csv";
+
+// ========================= DATA =========================
+let zones = { High:[], Middle:[], Elementary:[] };
+let corrections = [];
+let loaded = false;
+
+// ========================= MAP =========================
+const map = L.map("map").setView([34.1478,-118.1445],12);
+
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+  maxZoom:19
+}).addTo(map);
+
+let marker, zoneLayer, districtLayer;
+
+// ========================= HELPERS =========================
+function msg(html){ document.getElementById("box").innerHTML = html; }
+
+function normalize(s){
+  return (s||"").toLowerCase()
+    .replaceAll("east","e")
+    .replaceAll("west","w")
+    .replaceAll("avenue","ave")
+    .replace(/[^a-z0-9]+/g," ");
+}
+
+function getNumber(a){
+  const m = a.match(/^(\d+)/);
+  return m ? Number(m[1]) : null;
+}
+
+// ========================= CSV =========================
+async function loadCorrections(){
+  try{
+    const r = await fetch(correctionsFile + "?v="+Date.now());
+    if(!r.ok){ corrections=[]; return; }
+
+    const txt = await r.text();
+    const lines = txt.split("\n").slice(1);
+
+    corrections = lines.map(l=>{
+      const p = l.split(",");
+      if(p.length<7) return null;
       return {
-        minLng: minLng - padding,
-        minLat: minLat - padding,
-        maxLng: maxLng + padding,
-        maxLat: maxLat + padding
+        street:p[0],
+        level:p[1],
+        school:p[2],
+        evenStart:+p[3],
+        evenEnd:+p[4],
+        oddStart:+p[5],
+        oddEnd:+p[6]
       };
-    }
+    }).filter(Boolean);
 
-    function pointInsideDistrictBounds(lat, lng) {
-      if (!districtBounds) return true;
+  }catch{ corrections=[]; }
+}
 
-      return (
-        lng >= districtBounds.minLng &&
-        lng <= districtBounds.maxLng &&
-        lat >= districtBounds.minLat &&
-        lat <= districtBounds.maxLat
-      );
-    }
+function checkCorrection(address, level){
+  const num = getNumber(address);
+  if(!num) return null;
 
-    // =====================================================
-    // SCHOOL LOOKUP
-    // =====================================================
-    function getSchoolName(properties) {
-      if (!properties) return "Unknown School";
+  const n = normalize(address);
 
-      const rawName = (
-        properties.name ||
-        properties.Name ||
-        properties.SCHOOL ||
-        properties.School ||
-        properties.school ||
-        properties.SCHOOLNAME ||
-        properties.SCHOOL_NAME ||
-        properties.school_name ||
-        properties.SITE_NAME ||
-        properties.site_name ||
-        "Unknown School"
-      );
+  for(const c of corrections){
+    if(c.level!==level) continue;
+    if(!n.includes(c.street)) continue;
 
-      return schoolNameFixes[rawName] || rawName;
-    }
+    if(num%2===0 && num>=c.evenStart && num<=c.evenEnd) return c.school;
+    if(num%2===1 && num>=c.oddStart && num<=c.oddEnd) return c.school;
+  }
 
-    function getSchoolDetails(schoolName) {
-      return schoolInfo[schoolName] || {
-        description: "No description has been added yet.",
-        address: "N/A",
-        phone: "N/A",
-        grades: "N/A",
-        website: ""
-      };
-    }
+  return null;
+}
 
-    function findZonedSchool(lat, lng, level) {
-      const levelZones = zones[level];
-      if (!levelZones || levelZones.length === 0) return null;
+// ========================= LOAD ZONES =========================
+async function loadZones(){
 
-      const tolerance = 0.0005;
-      const testPoints = [
-        [lng, lat],
-        [lng + tolerance, lat],
-        [lng - tolerance, lat],
-        [lng, lat + tolerance],
-        [lng, lat - tolerance],
-        [lng + tolerance, lat + tolerance],
-        [lng - tolerance, lat - tolerance],
-        [lng + tolerance, lat - tolerance],
-        [lng - tolerance, lat + tolerance]
-      ];
+  const [h,m,e] = await Promise.all([
+    fetch(zoneFiles.High).then(r=>r.json()),
+    fetch(zoneFiles.Middle).then(r=>r.json()),
+    fetch(zoneFiles.Elementary).then(r=>r.json())
+  ]);
 
-      for (const zone of levelZones) {
-        const polygons = getFeaturePolygons(zone);
+  zones.High = h.features;
+  zones.Middle = m.features;
+  zones.Elementary = e.features;
 
-        for (const polygon of polygons) {
-          for (const point of testPoints) {
-            if (pointInPolygon(point, polygon)) {
-              return {
-                name: getSchoolName(zone.properties),
-                feature: zone
-              };
-            }
-          }
-        }
-      }
+  await loadCorrections();
 
-      return null;
-    }
+  drawDistrict();
 
-    function pointInsideAnyPusdZone(lat, lng) {
-      return (
-        findZonedSchool(lat, lng, "High") ||
-        findZonedSchool(lat, lng, "Middle") ||
-        findZonedSchool(lat, lng, "Elementary")
-      );
-    }
+  loaded = true;
+  document.getElementById("btn").disabled = false;
+  document.getElementById("btn").innerText = "Find School";
 
-    function findZoneFeatureBySchoolName(schoolName, level) {
-      const levelZones = zones[level] || [];
+  msg("<span class='success'>Ready</span>");
+}
 
-      for (const zone of levelZones) {
-        if (getSchoolName(zone.properties) === schoolName) {
-          return zone;
-        }
-      }
+loadZones();
 
-      return null;
-    }
+// ========================= GEOMETRY =========================
+function inside(point, vs){
+  let x=point[0], y=point[1], inside=false;
+  for(let i=0,j=vs.length-1;i<vs.length;j=i++){
+    let xi=vs[i][0], yi=vs[i][1];
+    let xj=vs[j][0], yj=vs[j][1];
 
-    // =====================================================
-    // GEOCODING
-    // No manual address overrides.
-    // The app gathers multiple geocoder results and prefers the one that lands
-    // inside your uploaded Pasadena Unified school zone files.
-    // =====================================================
-    async function geocodeAddress(address, level) {
-      const candidates = [];
-      const seen = new Set();
+    let intersect = ((yi>y)!=(yj>y)) &&
+      (x<(xj-xi)*(y-yi)/(yj-yi)+xi);
 
-      // ArcGIS usually handles exact street addresses better.
-      await addArcGisCandidates(address, candidates, seen);
+    if(intersect) inside=!inside;
+  }
+  return inside;
+}
 
-      // These are backups if ArcGIS does not find the address.
-      await addNominatimCandidates(address, candidates, seen);
-      await addPhotonCandidates(address, candidates, seen);
+function inPolygon(lng,lat,poly){
+  return inside([lng,lat],poly[0]);
+}
 
-      if (candidates.length === 0) {
-        return null;
-      }
+function findZone(lat,lng,level){
+  for(const z of zones[level]){
+    const g=z.geometry;
 
-      // Best: result falls inside the selected level boundary.
-      for (const candidate of candidates) {
-        const match = findZonedSchool(candidate.lat, candidate.lng, level);
-        if (match) {
-          candidate.boundaryMatch = match;
-          candidate.matchQuality = "selected-level-boundary";
-          return candidate;
-        }
-      }
+    const polys = g.type==="Polygon"
+      ? [g.coordinates]
+      : g.coordinates;
 
-      // Second best: result falls anywhere inside uploaded PUSD boundaries.
-      for (const candidate of candidates) {
-        const anyPusdMatch = pointInsideAnyPusdZone(candidate.lat, candidate.lng);
-        if (anyPusdMatch) {
-          candidate.matchQuality = "inside-pusd-boundary";
-          return candidate;
-        }
-      }
-
-      // Third best: result is inside the overall area covered by your zone files.
-      for (const candidate of candidates) {
-        if (pointInsideDistrictBounds(candidate.lat, candidate.lng)) {
-          candidate.matchQuality = "inside-zone-bounds";
-          return candidate;
-        }
-      }
-
-      candidates[0].matchQuality = "outside-pusd-boundary";
-      return candidates[0];
-    }
-
-    function addCandidate(candidates, seen, lat, lng, label, source) {
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-
-      const key = lat.toFixed(6) + "," + lng.toFixed(6);
-      if (seen.has(key)) return;
-
-      seen.add(key);
-      candidates.push({
-        lat: lat,
-        lng: lng,
-        label: label || "Unknown location",
-        source: source
-      });
-    }
-
-    async function addArcGisCandidates(address, candidates, seen) {
-      const queries = [
-        address,
-        address + ", CA",
-        address + ", San Gabriel, CA",
-        address + ", Pasadena, CA",
-        address + ", Los Angeles County, CA"
-      ];
-
-      for (const query of queries) {
-        let url =
-          "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates" +
-          "?f=json" +
-          "&maxLocations=10" +
-          "&outFields=Match_addr,Addr_type,Score" +
-          "&SingleLine=" + encodeURIComponent(query);
-
-        if (districtBounds) {
-          url +=
-            "&searchExtent=" +
-            districtBounds.minLng + "," +
-            districtBounds.minLat + "," +
-            districtBounds.maxLng + "," +
-            districtBounds.maxLat;
-        }
-
-        try {
-          const response = await fetch(url);
-          if (!response.ok) continue;
-
-          const data = await response.json();
-          const results = data.candidates || [];
-
-          for (const result of results) {
-            if (!result.location) continue;
-
-            addCandidate(
-              candidates,
-              seen,
-              Number(result.location.y),
-              Number(result.location.x),
-              result.address || query,
-              "ArcGIS"
-            );
-          }
-        } catch (error) {
-          console.warn("ArcGIS failed for query:", query, error);
-        }
+    for(const p of polys){
+      if(inPolygon(lng,lat,p)){
+        return {
+          name: z.properties.name,
+          feature: z
+        };
       }
     }
+  }
+  return null;
+}
 
-    async function addNominatimCandidates(address, candidates, seen) {
-      const queries = [
-        address,
-        address + ", CA, USA",
-        address + ", Pasadena, CA, USA",
-        address + ", Altadena, CA, USA",
-        address + ", Sierra Madre, CA, USA",
-        address + ", San Gabriel, CA, USA",
-        address + ", Los Angeles County, CA, USA",
-        address + ", Pasadena Unified School District, CA, USA"
-      ];
+function insideAny(lat,lng){
+  return findZone(lat,lng,"High") ||
+         findZone(lat,lng,"Middle") ||
+         findZone(lat,lng,"Elementary");
+}
 
-      for (const query of queries) {
-        let url =
-          "https://nominatim.openstreetmap.org/search" +
-          "?format=json" +
-          "&limit=10" +
-          "&addressdetails=1" +
-          "&countrycodes=us";
+// ========================= GEOCODE =========================
+async function geocode(addr){
+  const url="https://nominatim.openstreetmap.org/search?format=json&q="+encodeURIComponent(addr);
 
-        if (districtBounds) {
-          // Nominatim viewbox order: left,top,right,bottom
-          url +=
-            "&viewbox=" +
-            districtBounds.minLng + "," +
-            districtBounds.maxLat + "," +
-            districtBounds.maxLng + "," +
-            districtBounds.minLat;
-        }
+  const r = await fetch(url);
+  const d = await r.json();
 
-        url += "&q=" + encodeURIComponent(query);
+  if(!d.length) return null;
 
-        try {
-          const response = await fetch(url, {
-            headers: { Accept: "application/json" }
-          });
+  return {
+    lat:+d[0].lat,
+    lng:+d[0].lon,
+    label:d[0].display_name
+  };
+}
 
-          if (!response.ok) continue;
+// ========================= DRAW =========================
+function drawPoint(lat,lng,label){
+  if(marker) map.removeLayer(marker);
+  marker = L.marker([lat,lng]).addTo(map).bindPopup(label).openPopup();
+  map.setView([lat,lng],15);
+}
 
-          const results = await response.json();
-          if (!results || results.length === 0) continue;
+function drawZone(f){
+  if(zoneLayer) map.removeLayer(zoneLayer);
+  zoneLayer = L.geoJSON(f,{style:{color:"blue"}}).addTo(map);
+}
 
-          for (const result of results) {
-            addCandidate(
-              candidates,
-              seen,
-              Number(result.lat),
-              Number(result.lon),
-              result.display_name || query,
-              "Nominatim"
-            );
-          }
-        } catch (error) {
-          console.warn("Nominatim failed for query:", query, error);
-        }
-      }
-    }
+function drawDistrict(){
+  const all = [].concat(zones.High,zones.Middle,zones.Elementary);
 
-    async function addPhotonCandidates(address, candidates, seen) {
-      const queries = [
-        address,
-        address + ", CA",
-        address + ", Pasadena CA",
-        address + ", Altadena CA",
-        address + ", Sierra Madre CA",
-        address + ", San Gabriel CA"
-      ];
+  districtLayer = L.geoJSON(all,{
+    style:{color:"#999", weight:1, fillOpacity:0.05}
+  }).addTo(map);
 
-      for (const query of queries) {
-        let url = "https://photon.komoot.io/api/?limit=10&q=" + encodeURIComponent(query);
+  districtLayer.bringToBack();
+}
 
-        if (districtBounds) {
-          const centerLat = (districtBounds.minLat + districtBounds.maxLat) / 2;
-          const centerLng = (districtBounds.minLng + districtBounds.maxLng) / 2;
-          url += "&lat=" + centerLat + "&lon=" + centerLng;
-        }
+// ========================= MAIN =========================
+async function findSchool(){
 
-        try {
-          const response = await fetch(url);
-          if (!response.ok) continue;
+  if(!loaded) return;
 
-          const data = await response.json();
-          const features = data.features || [];
+  const address = document.getElementById("address").value;
+  const level = document.getElementById("level").value;
 
-          for (const feature of features) {
-            if (!feature.geometry || !feature.geometry.coordinates) continue;
+  msg("Searching...");
 
-            const lng = Number(feature.geometry.coordinates[0]);
-            const lat = Number(feature.geometry.coordinates[1]);
-            const props = feature.properties || {};
+  const loc = await geocode(address);
 
-            const labelParts = [
-              props.name,
-              props.street,
-              props.city,
-              props.state,
-              props.country
-            ].filter(Boolean);
+  if(!loc){
+    msg("<span class='error'>Address not found</span>");
+    return;
+  }
 
-            addCandidate(
-              candidates,
-              seen,
-              lat,
-              lng,
-              labelParts.join(", ") || query,
-              "Photon"
-            );
-          }
-        } catch (error) {
-          console.warn("Photon failed for query:", query, error);
-        }
-      }
-    }
+  drawPoint(loc.lat,loc.lng,loc.label);
 
-    // =====================================================
-    // MAP DISPLAY
-    // =====================================================
-    function drawSearchPoint(lat, lng, label) {
-      if (userMarker) map.removeLayer(userMarker);
+  if(!insideAny(loc.lat,loc.lng)){
+    msg("<span class='error'>Outside PUSD boundary</span>");
+    return;
+  }
 
-      userMarker = L.marker([lat, lng])
-        .addTo(map)
-        .bindPopup(escapeHtml(label))
-        .openPopup();
+  let result = findZone(loc.lat,loc.lng,level);
 
-      map.setView([lat, lng], 15);
-    }
+  if(!result){
+    msg("<span class='error'>No zone found</span>");
+    return;
+  }
 
-    function drawSelectedZone(feature) {
-      if (selectedZoneLayer) map.removeLayer(selectedZoneLayer);
+  const override = checkCorrection(address,level);
 
-      selectedZoneLayer = L.geoJSON(feature, {
-        style: {
-          color: "#2f6fed",
-          weight: 3,
-          fillOpacity: 0.15
-        }
-      }).addTo(map);
-    }
+  const school = override || result.name;
 
-    function drawDistrictBoundary() {
-      if (districtBoundaryLayer) map.removeLayer(districtBoundaryLayer);
+  drawZone(result.feature);
 
-      const allFeatures = [];
+  msg("<b>School:</b> "+school);
+}
 
-      for (const level of ["High", "Middle", "Elementary"]) {
-        for (const feature of zones[level]) {
-          allFeatures.push(feature);
-        }
-      }
+</script>
 
-      districtBoundaryLayer = L.geoJSON(allFeatures, {
-        style: {
-          color: "#444",
-          weight: 1,
-          fillOpacity: 0.04
-        }
-      }).addTo(map);
-
-      districtBoundaryLayer.bringToBack();
-    }
-
-    // =====================================================
-    // RESULT CARD
-    // =====================================================
-    function buildSchoolCard(schoolName, level, location) {
-      const info = getSchoolDetails(schoolName);
-
-      return (
-        "<span class='success'>✅ Zoned School Found</span>" +
-        "<div class='school-card'>" +
-          "<h3>" + escapeHtml(schoolName) + "</h3>" +
-          "<p><b>School level:</b> " + escapeHtml(level) + " School</p>" +
-          "<p><b>Description:</b><br>" + formatDescription(info.description) + "</p>" +
-          "<p><b>Address:</b> " + escapeHtml(info.address || "N/A") + "</p>" +
-          "<p><b>Phone:</b> " + escapeHtml(info.phone || "N/A") + "</p>" +
-          "<p><b>Grades:</b> " + escapeHtml(info.grades || "N/A") + "</p>" +
-          makeWebsiteLink(info.website) +
-        "</div>" +
-        "<br>" +
-        "<span class='small'>" +
-          "<b>Geocoded location:</b><br>" +
-          escapeHtml(location.label) +
-          "<br>Lat: " + location.lat.toFixed(6) +
-          ", Lng: " + location.lng.toFixed(6) +
-          "<br>Source: " + escapeHtml(location.source || "geocoder") +
-          "<br>Match: " + escapeHtml(location.matchQuality || "boundary check") +
-        "</span>"
-      );
-    }
-
-    // =====================================================
-    // MAIN BUTTON ACTION
-    // =====================================================
-    async function findSchool() {
-      try {
-        await zonesLoaded;
-
-        if (!zonesAreLoaded) {
-          showMessage("<span class='error'>❌ Zoning data is not loaded yet.</span>");
-          return;
-        }
-
-        const address = document.getElementById("address").value.trim();
-        const level = document.getElementById("level").value;
-        const rangeCorrection = getAddressRangeCorrection(address, level);
-
-        if (!address) {
-          alert("Please enter an address.");
-          return;
-        }
-
-        showMessage("Searching address and checking school boundaries... Please wait.");
-
-        const location = await geocodeAddress(address, level);
-
-        if (!location) {
-          showMessage(
-            "<span class='error'>❌ Address not found.</span><br>" +
-            "Try entering the full address with city, state, and ZIP code."
-          );
-          return;
-        }
-
-        drawSearchPoint(location.lat, location.lng, location.label);
-        showMessage("Checking school boundary...");
-
-        const insidePUSD = pointInsideAnyPusdZone(location.lat, location.lng);
-
-        if (!insidePUSD) {
-          showMessage(
-            "<span class='error'>❌ Address is outside Pasadena Unified School District boundaries.</span><br><br>" +
-            "<b>Geocoded location:</b><br>" + escapeHtml(location.label) +
-            "<br>Lat: " + location.lat.toFixed(6) +
-            ", Lng: " + location.lng.toFixed(6)
-          );
-          return;
-        }
-
-        const result = location.boundaryMatch || findZonedSchool(location.lat, location.lng, level);
-
-        if (!result) {
-          showMessage(
-            "<span class='error'>❌ No zoned school found.</span><br><br>" +
-            "The address was found, but none of the geocoder results landed inside any " +
-            escapeHtml(level) +
-            " school boundary from your uploaded zone files.<br><br>" +
-            "<b>Best geocoded location:</b><br>" +
-            escapeHtml(location.label) +
-            "<br><br>" +
-            "<b>Coordinates:</b><br>" +
-            "Lat: " + location.lat.toFixed(6) + "<br>" +
-            "Lng: " + location.lng.toFixed(6) + "<br><br>" +
-            "<span class='small'>This usually means the online geocoder is choosing the wrong place for the typed address, or the address is outside the uploaded boundary files.</span>"
-          );
-          return;
-        }
-
-        const finalSchoolName = rangeCorrection ? rangeCorrection.school : result.name;
-        const correctedFeature = rangeCorrection
-          ? findZoneFeatureBySchoolName(rangeCorrection.school, level)
-          : result.feature;
-
-        drawSelectedZone(correctedFeature || result.feature);
-        showMessage(buildSchoolCard(finalSchoolName, level, location));
-      } catch (error) {
-        console.error(error);
-        showMessage(
-          "<span class='error'>❌ Error:</span><br>" +
-          escapeHtml(error.message || error)
-        );
-      }
-    }
-  </script>
 </body>
 </html>
