@@ -500,16 +500,25 @@
         .filter(line => line && !line.startsWith("#"));
     }
 
+    function splitDataLine(line) {
+      // Supports normal comma CSV and Excel/Sheets tab-separated paste/export.
+      if (line.includes(String.fromCharCode(9))) {
+        return line.split(String.fromCharCode(9)).map(value => value.trim());
+      }
+
+      return line.split(",").map(value => value.trim());
+    }
+
     function parseAddressCorrectionsCsv(csvText) {
       const lines = parseCsvRows(csvText);
 
       if (lines.length <= 1) return [];
 
-      const headers = lines[0].split(",").map(header => header.trim().toLowerCase());
+      const headers = splitDataLine(lines[0]).map(header => header.trim().toLowerCase());
       const corrections = [];
 
       for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(",").map(value => value.trim());
+        const values = splitDataLine(lines[i]);
         const row = {};
 
         headers.forEach(function(header, index) {
@@ -565,15 +574,35 @@
       );
     }
 
+    function normalizeHeader(value) {
+      return String(value || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "")
+        .trim();
+    }
+
+    function cleanRangeType(value) {
+      const text = String(value || "").trim().toLowerCase();
+      if (text === "e" || text === "even") return "even";
+      if (text === "o" || text === "odd") return "odd";
+      return "all";
+    }
+
+    function cleanRangeDirection(value) {
+      const text = String(value || "").trim().toLowerCase();
+      if (["n", "s", "e", "w"].includes(text)) return text;
+      return "";
+    }
+
     function parseAddressRangesCsv(csvText) {
       const lines = parseCsvRows(csvText);
       if (lines.length <= 1) return [];
 
-      const headers = lines[0].split(",").map(header => normalizeHeader(header));
+      const headers = splitDataLine(lines[0]).map(header => normalizeHeader(header));
       const ranges = [];
 
       for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(",").map(value => value.trim());
+        const values = splitDataLine(lines[i]);
         const row = {};
 
         headers.forEach(function(header, index) {
@@ -582,8 +611,8 @@
 
         const low = Number(row.lownumber || row.low || row.start);
         const high = Number(row.highnumber || row.high || row.end);
-        const type = cleanBulkType(row.oe || row.type || row.oddeven);
-        const direction = cleanBulkDirection(row.dir || row.direction);
+        const type = cleanRangeType(row.oe || row.type || row.oddeven);
+        const direction = cleanRangeDirection(row.dir || row.direction);
         const street = row.streetname || row.street;
         const city = row.cityname || row.city;
         const zip = row.zipcode || row.zip;
