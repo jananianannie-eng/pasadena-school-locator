@@ -654,7 +654,10 @@
         if (type === "even" && number % 2 !== 0) continue;
         if (type === "odd" && number % 2 !== 1) continue;
 
-        if (item.direction && item.direction !== addressDirection) continue;
+        if (
+          item.direction &&
+          String(item.direction).toLowerCase() !== String(addressDirection).toLowerCase()
+        ) continue;
 
         const normalizedCity = normalizeAddressText(item.city || "");
         if (normalizedCity && normalizedAddress.includes(normalizedCity) === false) {
