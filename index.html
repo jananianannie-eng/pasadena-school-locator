@@ -639,6 +639,20 @@
       return ranges;
     }
 
+    function addressHasCityOrZip(address) {
+      const text = String(address || "").toLowerCase();
+      const zipPattern = new RegExp("\b\d{5}\b");
+      return (
+        text.includes("pasadena") ||
+        text.includes("altadena") ||
+        text.includes("sierra madre") ||
+        text.includes("san gabriel") ||
+        text.includes("south pasadena") ||
+        text.includes("ca") ||
+        zipPattern.test(text)
+      );
+    }
+
     function findAddressRangeMatch(address) {
       const number = getAddressNumber(address);
       if (!number || addressRanges.length === 0) return null;
@@ -1407,6 +1421,18 @@
 
         const rangeMatch = findAddressRangeMatch(address);
 
+        if (addressRanges.length > 0 && !rangeMatch && !addressHasCityOrZip(address)) {
+          showMessage(
+            "<span class='error'>❌ Address needs city or ZIP.</span><br><br>" +
+            "This address was not found in <b>address-ranges.csv</b>. To avoid a wrong geocoder match, please enter the full address with city or ZIP code.<br><br>" +
+            "Example:<br>" +
+            "<b>3907 La Crescenta Ave, Glendale, CA 91214</b><br>" +
+            "or<br>" +
+            "<b>3907 La Crescenta Ave, Pasadena, CA 91107</b>"
+          );
+          return;
+        }
+
         showMessage("Checking CSV and map boundaries side-by-side... Please wait.");
 
         const location = await geocodeAddress(address, level);
@@ -1465,4 +1491,3 @@
   </script>
 </body>
 </html>
-
