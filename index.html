@@ -610,7 +610,7 @@
         });
 
         const low = Number(row.lownumber || row.low || row.start);
-        const high = Number(row.highnumber || row.high || row.end);
+        const highNumber = Number(row.highnumber || row.end);
         const type = cleanRangeType(row.oe || row.type || row.oddeven);
         const direction = cleanRangeDirection(row.dir || row.direction);
         const street = row.streetname || row.street;
@@ -620,11 +620,11 @@
         const middle = row.middle || row.middleschool;
         const highSchool = row.highschool || row.high;
 
-        if (!Number.isFinite(low) || !Number.isFinite(high) || !street) continue;
+        if (!Number.isFinite(low) || !Number.isFinite(highNumber) || !street) continue;
 
         ranges.push({
           low: low,
-          high: high,
+          highNumber: highNumber,
           type: type,
           direction: direction,
           street: street,
@@ -632,7 +632,7 @@
           zip: zip,
           elementary: elementary || "",
           middle: middle || "",
-          high: highSchool || ""
+          highSchool: highSchool || ""
         });
       }
 
@@ -647,7 +647,7 @@
       const addressDirection = getAddressDirection(address);
 
       for (const item of addressRanges) {
-        if (number < item.low || number > item.high) continue;
+        if (number < item.low || number > item.highNumber) continue;
         if (!normalizedAddress.includes(normalizeAddressText(item.street))) continue;
 
         const type = String(item.type || "all").toLowerCase();
@@ -1269,7 +1269,7 @@
     function buildComparisonCard(rangeMatch, geoResults, location) {
       const csvElementary = rangeMatch ? rangeMatch.elementary : "";
       const csvMiddle = rangeMatch ? rangeMatch.middle : "";
-      const csvHigh = rangeMatch ? rangeMatch.high : "";
+      const csvHigh = rangeMatch ? rangeMatch.highSchool : "";
 
       const geoElementary = geoResults.elementary || "";
       const geoMiddle = geoResults.middle || "";
@@ -1290,7 +1290,7 @@
       let matchedRangeText = "No CSV range matched";
       if (rangeMatch) {
         matchedRangeText =
-          rangeMatch.low + "–" + rangeMatch.high + " " +
+          rangeMatch.low + "–" + rangeMatch.highNumber + " " +
           (rangeMatch.direction ? rangeMatch.direction.toUpperCase() + " " : "") +
           rangeMatch.street;
       }
