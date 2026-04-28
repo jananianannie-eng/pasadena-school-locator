@@ -644,36 +644,97 @@
       if (!number || addressRanges.length === 0) return null;
 
       const normalizedAddress = normalizeAddressText(address);
-      const addressDirection = getAddressDirection(address);
+      const addressDirection = String(getAddressDirection(address) || "").toLowerCase();
+
+      let bestMatch = null;
+      const possibleMatches = [];
 
       for (const item of addressRanges) {
-        if (number < item.low || number > item.highNumber) continue;
-        if (!normalizedAddress.includes(normalizeAddressText(item.street))) continue;
+        const streetName = normalizeAddressText(item.street);
+        if (!streetName) continue;
 
+        // 1. Street must match.
+        if (!normalizedAddress.includes(streetName)) continue;
+
+        // 2. Direction must match if the CSV row has a direction.
+        const itemDirection = String(item.direction || "").toLowerCase();
+        if (itemDirection && itemDirection !== addressDirection) continue;
+
+        // 3. Address number must be inside this row's range.
+        if (number < item.low || number > item.highNumber) continue;
+
+        // 4. Odd/even must match.
         const type = String(item.type || "all").toLowerCase();
         if (type === "even" && number % 2 !== 0) continue;
         if (type === "odd" && number % 2 !== 1) continue;
 
-        if (
-          item.direction &&
-          String(item.direction).toLowerCase() !== String(addressDirection).toLowerCase()
-        ) continue;
-
-        const normalizedCity = normalizeAddressText(item.city || "");
-        if (normalizedCity && normalizedAddress.includes(normalizedCity) === false) {
-          // If city is not included in the typed address, do not block the match.
-          // If another city is typed, the street/zip checks below help prevent bad matches.
-        }
-
-        const zipText = String(item.zip || "").trim();
-        if (zipText && normalizedAddress.includes(zipText) === false) {
-          // Zip is preferred but not required because users often omit it.
-        }
-
-        return item;
+        possibleMatches.push(item);
       }
 
-      return null;
+      // If multiple rows match, choose the smallest range.
+      // This automatically handles overlapping ranges by trusting the most specific one.
+      for (const item of possibleMatches) {
+        if (!bestMatch) {
+          bestMatch = item;
+          continue;
+        }
+
+        const itemSize = item.highNumber - item.low;
+        const bestSize = bestMatch.highNumber - bestMatch.low;
+
+        if (itemSize < bestSize) {
+          bestMatch = item;
+        }
+      }
+
+      return bestMatch;
+    }
+
+    function detectCsvRangeIssues() {
+      const issues = [];
+
+      for (let i = 0; i < addressRanges.length; i++) {
+        const a = addressRanges[i];
+
+        if (!a.street || !Number.isFinite(a.low) || !Number.isFinite(a.highNumber)) {
+          issues.push("Row " + (i + 2) + ": missing street or invalid number range.");
+          continue;
+        }
+
+        if (a.low > a.highNumber) {
+          issues.push("Row " + (i + 2) + ": Low Number is greater than High Number.");
+        }
+
+        for (let j = i + 1; j < addressRanges.length; j++) {
+          const b = addressRanges[j];
+
+          const sameStreet = normalizeAddressText(a.street) === normalizeAddressText(b.street);
+          const sameDirection = String(a.direction || "").toLowerCase() === String(b.direction || "").toLowerCase();
+          const sameCity = normalizeAddressText(a.city || "") === normalizeAddressText(b.city || "");
+          const sameZip = String(a.zip || "").trim() === String(b.zip || "").trim();
+          const sameType = String(a.type || "all").toLowerCase() === String(b.type || "all").toLowerCase();
+
+          if (!sameStreet || !sameDirection || !sameCity || !sameZip || !sameType) continue;
+
+          const overlaps = a.low <= b.highNumber && b.low <= a.highNumber;
+
+          if (overlaps) {
+            const sameSchools =
+              normalizeSchoolForCompare(a.elementary) === normalizeSchoolForCompare(b.elementary) &&
+              normalizeSchoolForCompare(a.middle) === normalizeSchoolForCompare(b.middle) &&
+              normalizeSchoolForCompare(a.highSchool) === normalizeSchoolForCompare(b.highSchool);
+
+            if (!sameSchools) {
+              issues.push(
+                "Possible overlap: rows " + (i + 2) + " and " + (j + 2) +
+                " both cover " + a.street + " but have different schools."
+              );
+            }
+          }
+        }
+      }
+
+      return issues;
     }
 
     async function loadZones() {
