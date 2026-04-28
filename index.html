@@ -653,6 +653,42 @@
       );
     }
 
+    function extractTypedZip(address) {
+      const match = String(address || "").match(new RegExp("\b\d{5}\b"));
+      return match ? match[0] : "";
+    }
+
+    function extractTypedCity(address) {
+      const text = String(address || "").toLowerCase();
+      const cities = [
+        "pasadena",
+        "altadena",
+        "sierra madre",
+        "san gabriel",
+        "south pasadena",
+        "la crescenta",
+        "glendale",
+        "arcadia"
+      ];
+
+      for (const city of cities) {
+        if (text.includes(city)) return city;
+      }
+
+      return "";
+    }
+
+    function geocoderMatchesTypedCityOrZip(address, location) {
+      const typedZip = extractTypedZip(address);
+      const typedCity = extractTypedCity(address);
+      const label = String(location && location.label ? location.label : "").toLowerCase();
+
+      if (typedZip && !label.includes(typedZip)) return false;
+      if (typedCity && !label.includes(typedCity)) return false;
+
+      return true;
+    }
+
     function findAddressRangeMatch(address) {
       const number = getAddressNumber(address);
       if (!number || addressRanges.length === 0) return null;
@@ -1440,7 +1476,18 @@
         if (!location) {
           showMessage(
             "<span class='error'>❌ Address not found.</span><br>" +
-            "Try entering the full address with city, state, and ZIP code."
+            "Try entering the full address with ZIP code."
+          );
+          return;
+        }
+
+        if (addressRanges.length > 0 && !rangeMatch && !geocoderMatchesTypedCityOrZip(address, location)) {
+          showMessage(
+            "<span class='error'>❌ Address not found in PUSD.</span><br><br>" +
+            "The address was not found in <b>address-ranges.csv</b>, and the geocoder returned a different city or ZIP than what you typed.<br><br>" +
+            "<b>You typed:</b><br>" + escapeHtml(address) + "<br><br>" +
+            "<b>Geocoder returned:</b><br>" + escapeHtml(location.label || "Unknown") + "<br><br>" +
+            "This usually means the address is outside PUSD or the geocoder chose the wrong location."
           );
           return;
         }
