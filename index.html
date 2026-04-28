@@ -1372,20 +1372,35 @@
       return String(fixed).toLowerCase().replace(/[^a-z0-9]+/g, "").trim();
     }
 
-    function comparisonClass(csvSchool, mapSchool) {
+    function comparisonClass(csvSchool, mapSchool, level, allResults) {
       if (!csvSchool || !mapSchool) return "missing";
-      return normalizeSchoolForCompare(csvSchool) === normalizeSchoolForCompare(mapSchool)
-        ? "match"
-        : "mismatch";
+
+      const isMatch = normalizeSchoolForCompare(csvSchool) === normalizeSchoolForCompare(mapSchool);
+      if (isMatch) return "match";
+
+      // If CSV exists and only this level differs, treat it as a review warning,
+      // not a hard failure. This is common near elementary boundary edges.
+      if (allResults && allResults.csvHasMatch) {
+        const otherLevelsMatch = allResults.otherLevelsMatch(level);
+        if (otherLevelsMatch) return "missing";
+      }
+
+      return "mismatch";
     }
 
-    function comparisonLabel(csvSchool, mapSchool) {
+    function comparisonLabel(csvSchool, mapSchool, level, allResults) {
       if (!csvSchool && !mapSchool) return "Missing both";
       if (!csvSchool) return "Missing in CSV";
       if (!mapSchool) return "Missing on map";
-      return normalizeSchoolForCompare(csvSchool) === normalizeSchoolForCompare(mapSchool)
-        ? "Match"
-        : "Mismatch";
+
+      const isMatch = normalizeSchoolForCompare(csvSchool) === normalizeSchoolForCompare(mapSchool);
+      if (isMatch) return "Match";
+
+      if (allResults && allResults.csvHasMatch && allResults.otherLevelsMatch(level)) {
+        return "Review — using CSV";
+      }
+
+      return "Mismatch — check CSV/map";
     }
 
     function buildComparisonCard(rangeMatch, geoResults, location) {
@@ -1397,14 +1412,44 @@
       const geoMiddle = geoResults.middle || "";
       const geoHigh = geoResults.high || "";
 
+      const allResults = {
+        csvHasMatch: !!rangeMatch,
+        otherLevelsMatch: function(level) {
+          const checks = [
+            {
+              level: "Elementary",
+              csv: csvElementary,
+              map: geoElementary
+            },
+            {
+              level: "Middle",
+              csv: csvMiddle,
+              map: geoMiddle
+            },
+            {
+              level: "High",
+              csv: csvHigh,
+              map: geoHigh
+            }
+          ];
+
+          const otherChecks = checks.filter(item => item.level !== level);
+          return otherChecks.every(item =>
+            item.csv &&
+            item.map &&
+            normalizeSchoolForCompare(item.csv) === normalizeSchoolForCompare(item.map)
+          );
+        }
+      };
+
       function row(label, csvSchool, mapSchool) {
-        const rowClass = comparisonClass(csvSchool, mapSchool);
+        const rowClass = comparisonClass(csvSchool, mapSchool, label, allResults);
         return (
           "<tr class='" + rowClass + "'>" +
             "<td>" + escapeHtml(label) + "</td>" +
             "<td>" + escapeHtml(csvSchool || "—") + "</td>" +
             "<td>" + escapeHtml(mapSchool || "—") + "</td>" +
-            "<td>" + escapeHtml(comparisonLabel(csvSchool, mapSchool)) + "</td>" +
+            "<td>" + escapeHtml(comparisonLabel(csvSchool, mapSchool, label, allResults)) + "</td>" +
           "</tr>"
         );
       }
@@ -1432,7 +1477,7 @@
             row("Middle", csvMiddle, geoMiddle) +
             row("High", csvHigh, geoHigh) +
           "</table>" +
-          "<p class='small'>Green = match. Red = mismatch. Yellow = missing result.</p>" +
+          "<p class='small'>Green = match. Yellow = missing or review. Red = major mismatch. When CSV matches an address range, CSV is the official assignment and Map/GeoJSON is a secondary validation check.</p>" +
         "</div>" +
         "<br>" +
         "<span class='small'>" +
