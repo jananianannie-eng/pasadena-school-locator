@@ -180,6 +180,17 @@
   <button id="findBtn" onclick="findSchool()" disabled>Loading zoning data...</button>
 
   <div id="box">Loading zoning data...</div>
+
+  <hr>
+
+  <h3>CSV Quality Check</h3>
+  <p class="small">
+    This scans <b>address-ranges.csv</b> for possible boundary issues, overlaps, and elementary-only split patterns.
+  </p>
+  <button id="scanCsvBtn" onclick="scanCsvForBoundaryIssues()" disabled>Scan CSV for Boundary Issues</button>
+  <button id="downloadCsvIssuesBtn" onclick="downloadCsvIssues()" disabled>Download CSV Issues</button>
+  <div id="csvScanBox" class="small" style="margin-top:10px;"></div>
+
   <div id="map"></div>
 
   <script>
@@ -310,6 +321,7 @@
     const addressRangesFile = "./address-ranges.csv";
     let addressRangeCorrections = [];
     let addressRanges = [];
+    let csvIssueResults = [];
 
     
     // =====================================================
@@ -330,6 +342,8 @@
 
     const box = document.getElementById("box");
     const findBtn = document.getElementById("findBtn");
+    const scanCsvBtn = document.getElementById("scanCsvBtn");
+    const downloadCsvIssuesBtn = document.getElementById("downloadCsvIssuesBtn");
 
     const map = L.map("map").setView([34.1478, -118.1445], 12);
 
@@ -826,6 +840,7 @@
         zonesAreLoaded = true;
         findBtn.disabled = false;
         findBtn.textContent = "Find School";
+        scanCsvBtn.disabled = false;
 
         console.log("Loaded zones:", {
           High: zones.High.length,
@@ -1488,6 +1503,228 @@
           "<br>Source: " + escapeHtml(location.source || "geocoder") +
         "</span>"
       );
+    }
+
+    // =====================================================
+    // CSV QUALITY CHECK
+    // =====================================================
+    function sameText(a, b) {
+      return normalizeSchoolForCompare(a) === normalizeSchoolForCompare(b);
+    }
+
+    function rowRangeText(row) {
+      return (
+        row.low + "–" + row.highNumber + " " +
+        (row.direction ? row.direction.toUpperCase() + " " : "") +
+        row.street +
+        (row.city ? ", " + row.city : "") +
+        (row.zip ? " " + row.zip : "")
+      );
+    }
+
+    function addCsvIssue(type, severity, rowA, rowB, note) {
+      csvIssueResults.push({
+        type: type,
+        severity: severity,
+        rowA: rowA ? rowRangeText(rowA) : "",
+        rowB: rowB ? rowRangeText(rowB) : "",
+        elementaryA: rowA ? rowA.elementary : "",
+        elementaryB: rowB ? rowB.elementary : "",
+        middleA: rowA ? rowA.middle : "",
+        middleB: rowB ? rowB.middle : "",
+        highA: rowA ? rowA.highSchool : "",
+        highB: rowB ? rowB.highSchool : "",
+        note: note
+      });
+    }
+
+    function rangesOverlap(a, b) {
+      return a.low <= b.highNumber && b.low <= a.highNumber;
+    }
+
+    function rangesTouchOrOverlap(a, b) {
+      return a.low <= b.highNumber + 1 && b.low <= a.highNumber + 1;
+    }
+
+    function sameStreetKey(a, b) {
+      return (
+        normalizeAddressText(a.street) === normalizeAddressText(b.street) &&
+        normalizeAddressText(a.city || "") === normalizeAddressText(b.city || "") &&
+        String(a.zip || "").trim() === String(b.zip || "").trim() &&
+        String(a.direction || "").toLowerCase() === String(b.direction || "").toLowerCase() &&
+        String(a.type || "all").toLowerCase() === String(b.type || "all").toLowerCase()
+      );
+    }
+
+    function scanCsvForBoundaryIssues() {
+      const box = document.getElementById("csvScanBox");
+      csvIssueResults = [];
+      downloadCsvIssuesBtn.disabled = true;
+
+      if (!addressRanges || addressRanges.length === 0) {
+        box.innerHTML = "<span class='error'>No address-ranges.csv rows are loaded yet.</span>";
+        return;
+      }
+
+      box.innerHTML = "Scanning " + addressRanges.length + " rows...";
+
+      const sorted = addressRanges.slice().sort(function(a, b) {
+        const streetA = normalizeAddressText(a.street || "");
+        const streetB = normalizeAddressText(b.street || "");
+        if (streetA !== streetB) return streetA.localeCompare(streetB);
+
+        const cityA = normalizeAddressText(a.city || "");
+        const cityB = normalizeAddressText(b.city || "");
+        if (cityA !== cityB) return cityA.localeCompare(cityB);
+
+        const zipA = String(a.zip || "");
+        const zipB = String(b.zip || "");
+        if (zipA !== zipB) return zipA.localeCompare(zipB);
+
+        const dirA = String(a.direction || "");
+        const dirB = String(b.direction || "");
+        if (dirA !== dirB) return dirA.localeCompare(dirB);
+
+        return a.low - b.low;
+      });
+
+      for (let i = 0; i < sorted.length; i++) {
+        const row = sorted[i];
+
+        if (!row.street || !Number.isFinite(row.low) || !Number.isFinite(row.highNumber)) {
+          addCsvIssue("Invalid row", "High", row, null, "Missing street name or invalid Low/High Number.");
+          continue;
+        }
+
+        if (row.low > row.highNumber) {
+          addCsvIssue("Invalid range", "High", row, null, "Low Number is greater than High Number.");
+        }
+      }
+
+      for (let i = 0; i < sorted.length; i++) {
+        const a = sorted[i];
+
+        for (let j = i + 1; j < sorted.length; j++) {
+          const b = sorted[j];
+
+          if (!sameStreetKey(a, b)) {
+            const sameStreetOnly = normalizeAddressText(a.street) === normalizeAddressText(b.street);
+            if (!sameStreetOnly) break;
+            continue;
+          }
+
+          if (b.low > a.highNumber + 50) break;
+
+          const sameElementary = sameText(a.elementary, b.elementary);
+          const sameMiddle = sameText(a.middle, b.middle);
+          const sameHigh = sameText(a.highSchool, b.highSchool);
+
+          if (rangesOverlap(a, b) && (!sameElementary || !sameMiddle || !sameHigh)) {
+            addCsvIssue(
+              "Overlapping ranges with different schools",
+              "High",
+              a,
+              b,
+              "These rows overlap but do not have identical school assignments. Review carefully."
+            );
+          }
+
+          if (rangesTouchOrOverlap(a, b) && sameMiddle && sameHigh && !sameElementary) {
+            addCsvIssue(
+              "Elementary-only split",
+              "Review",
+              a,
+              b,
+              "Middle and High match, but Elementary changes. This may be a real elementary boundary edge like Figueroa, or it may need review."
+            );
+          }
+        }
+      }
+
+      const highCount = csvIssueResults.filter(item => item.severity === "High").length;
+      const reviewCount = csvIssueResults.filter(item => item.severity === "Review").length;
+
+      let html =
+        "<b>CSV scan complete.</b><br>" +
+        "Rows scanned: " + addressRanges.length + "<br>" +
+        "High-priority issues: " + highCount + "<br>" +
+        "Review items: " + reviewCount + "<br><br>";
+
+      if (csvIssueResults.length === 0) {
+        html += "<span class='success'>No obvious CSV boundary issues found.</span>";
+      } else {
+        html += "<b>First 20 issues:</b><br>";
+        html += "<ol>";
+        csvIssueResults.slice(0, 20).forEach(function(issue) {
+          html +=
+            "<li><b>" + escapeHtml(issue.severity) + " — " + escapeHtml(issue.type) + "</b><br>" +
+            "Row A: " + escapeHtml(issue.rowA) + "<br>" +
+            (issue.rowB ? "Row B: " + escapeHtml(issue.rowB) + "<br>" : "") +
+            escapeHtml(issue.note) +
+            "</li>";
+        });
+        html += "</ol>";
+
+        if (csvIssueResults.length > 20) {
+          html += "Showing first 20 only. Download the full issue list as CSV.";
+        }
+
+        downloadCsvIssuesBtn.disabled = false;
+      }
+
+      box.innerHTML = html;
+    }
+
+    function csvEscape(value) {
+      const text = String(value === undefined || value === null ? "" : value);
+      const quote = String.fromCharCode(34);
+      const comma = String.fromCharCode(44);
+      const newline = String.fromCharCode(10);
+
+      if (text.includes(comma) || text.includes(quote) || text.includes(newline)) {
+        return quote + text.replaceAll(quote, quote + quote) + quote;
+      }
+
+      return text;
+    }
+
+    function downloadCsvIssues() {
+      if (!csvIssueResults || csvIssueResults.length === 0) {
+        alert("No CSV issues to download.");
+        return;
+      }
+
+      const headers = [
+        "type",
+        "severity",
+        "rowA",
+        "rowB",
+        "elementaryA",
+        "elementaryB",
+        "middleA",
+        "middleB",
+        "highA",
+        "highB",
+        "note"
+      ];
+
+      const lines = [headers.join(",")];
+
+      csvIssueResults.forEach(function(issue) {
+        lines.push(headers.map(function(header) {
+          return csvEscape(issue[header]);
+        }).join(","));
+      });
+
+      const blob = new Blob([lines.join(String.fromCharCode(10))], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "csv-boundary-issues.csv";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
     }
 
     // =====================================================
