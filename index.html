@@ -668,7 +668,8 @@
         "south pasadena",
         "la crescenta",
         "glendale",
-        "arcadia"
+        "arcadia",
+        "los angeles"
       ];
 
       for (const city of cities) {
@@ -676,6 +677,16 @@
       }
 
       return "";
+    }
+
+    function isPusdAreaCity(city) {
+      const normalized = String(city || "").toLowerCase();
+      return [
+        "pasadena",
+        "altadena",
+        "sierra madre",
+        "san gabriel"
+      ].includes(normalized);
     }
 
     function geocoderMatchesTypedCityOrZip(address, location) {
@@ -1481,15 +1492,20 @@
           return;
         }
 
-        if (addressRanges.length > 0 && !rangeMatch && !geocoderMatchesTypedCityOrZip(address, location)) {
-          showMessage(
-            "<span class='error'>❌ Address not found in PUSD.</span><br><br>" +
-            "The address was not found in <b>address-ranges.csv</b>, and the geocoder returned a different city or ZIP than what you typed.<br><br>" +
-            "<b>You typed:</b><br>" + escapeHtml(address) + "<br><br>" +
-            "<b>Geocoder returned:</b><br>" + escapeHtml(location.label || "Unknown") + "<br><br>" +
-            "This usually means the address is outside PUSD or the geocoder chose the wrong location."
-          );
-          return;
+        if (addressRanges.length > 0 && !rangeMatch) {
+          const typedCity = extractTypedCity(address);
+          const cityOrZipMatches = geocoderMatchesTypedCityOrZip(address, location);
+
+          if (!isPusdAreaCity(typedCity) || !cityOrZipMatches) {
+            showMessage(
+              "<span class='error'>❌ Address not found in PUSD.</span><br><br>" +
+              "This address was not found in <b>address-ranges.csv</b>, and the typed city/ZIP does not match a trusted PUSD-area geocoder result.<br><br>" +
+              "<b>You typed:</b><br>" + escapeHtml(address) + "<br><br>" +
+              "<b>Geocoder returned:</b><br>" + escapeHtml(location.label || "Unknown") + "<br><br>" +
+              "If this is truly inside PUSD, add the address range to <b>address-ranges.csv</b> or enter the full official address with Pasadena, Altadena, Sierra Madre, or San Gabriel and ZIP code."
+            );
+            return;
+          }
         }
 
         drawSearchPoint(location.lat, location.lng, location.label);
