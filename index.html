@@ -1536,6 +1536,59 @@
     }
 
     // =====================================================
+    // GEOCODING
+    // =====================================================
+    async function geocodeAddress(address, level) {
+      const query = String(address || "").trim();
+      if (!query) return null;
+
+      const url =
+        "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates" +
+        "?f=json" +
+        "&maxLocations=5" +
+        "&outFields=Match_addr,Addr_type,Score" +
+        "&countryCode=USA" +
+        "&singleLine=" + encodeURIComponent(query);
+
+      const response = await fetch(url);
+      if (!response.ok) return null;
+
+      const data = await response.json();
+      const candidates = data && data.candidates ? data.candidates : [];
+      if (!candidates.length) return null;
+
+      let bestCandidate = null;
+      let bestScore = -1;
+
+      for (const candidate of candidates) {
+        if (!candidate || !candidate.location) continue;
+
+        const lat = candidate.location.y;
+        const lng = candidate.location.x;
+        const score = Number(candidate.score || 0);
+
+        // Prefer candidates that actually fall inside any uploaded PUSD zone.
+        const insidePusd = pointInsideAnyPusdZone(lat, lng);
+        const adjustedScore = insidePusd ? score + 1000 : score;
+
+        if (adjustedScore > bestScore) {
+          bestScore = adjustedScore;
+          bestCandidate = candidate;
+        }
+      }
+
+      if (!bestCandidate || !bestCandidate.location) return null;
+
+      return {
+        lat: bestCandidate.location.y,
+        lng: bestCandidate.location.x,
+        label: bestCandidate.address || bestCandidate.attributes?.Match_addr || query,
+        source: "ArcGIS",
+        matchQuality: bestCandidate.attributes?.Addr_type || "geocoder"
+      };
+    }
+
+    // =====================================================
     // MAIN BUTTON ACTION
     // =====================================================
     async function findSchool() {
@@ -1644,4 +1697,3 @@
   </script>
 </body>
 </html>
- 
