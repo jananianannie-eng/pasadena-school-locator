@@ -597,9 +597,21 @@
 
     function cleanRangeType(value) {
       const text = String(value || "").trim().toLowerCase();
+
       if (text === "e" || text === "even") return "even";
       if (text === "o" || text === "odd") return "odd";
+
+      // Blank, ALL, both, or anything unclear should apply to both odd and even.
       return "all";
+    }
+
+    function addressMatchesOddEven(number, type) {
+      const cleanType = cleanRangeType(type);
+
+      if (cleanType === "even") return number % 2 === 0;
+      if (cleanType === "odd") return number % 2 !== 0;
+
+      return true;
     }
 
     function cleanRangeDirection(value) {
@@ -739,9 +751,8 @@
         if (number < item.low || number > item.highNumber) continue;
 
         // 4. Odd/even must match.
-        const type = String(item.type || "all").toLowerCase();
-        if (type === "even" && number % 2 !== 0) continue;
-        if (type === "odd" && number % 2 !== 1) continue;
+        // This is critical for streets where one side of the street has a different school.
+        if (!addressMatchesOddEven(number, item.type)) continue;
 
         possibleMatches.push(item);
       }
@@ -1393,14 +1404,43 @@
       const isMatch = normalizeSchoolForCompare(csvSchool) === normalizeSchoolForCompare(mapSchool);
       if (isMatch) return "match";
 
-      // If CSV exists and only this level differs, treat it as a review warning,
-      // not a hard failure. This is common near elementary boundary edges.
       if (allResults && allResults.csvHasMatch) {
         const otherLevelsMatch = allResults.otherLevelsMatch(level);
-        if (otherLevelsMatch) return "missing";
+
+        // If only one level differs, it may be a boundary-edge review item.
+        // But if the mismatch is a known stronger conflict, flag as likely wrong CSV.
+        if (otherLevelsMatch) {
+          if (isLikelyWrongCsv(csvSchool, mapSchool, level)) return "mismatch";
+          return "missing";
+        }
       }
 
       return "mismatch";
+    }
+
+    function isLikelyWrongCsv(csvSchool, mapSchool, level) {
+      const csv = normalizeSchoolForCompare(csvSchool);
+      const map = normalizeSchoolForCompare(mapSchool);
+
+      if (!csv || !map || csv === map) return false;
+
+      // Stronger elementary conflicts that should usually be fixed in CSV.
+      // These are not treated as simple map-edge warnings.
+      if (level === "Elementary") {
+        const strongPairs = [
+          ["jacksonelementaryschool", "washingtonacceleratedschool"],
+          ["washingtonacceleratedschool", "jacksonelementaryschool"],
+          ["mckinleyelementaryschool", "longfellowelementaryschool"],
+          ["longfellowelementaryschool", "mckinleyelementaryschool"]
+        ];
+
+        return strongPairs.some(function(pair) {
+          return pair[0] === csv && pair[1] === map;
+        });
+      }
+
+      // Middle or High mismatches are usually more serious.
+      return level === "Middle" || level === "High";
     }
 
     function comparisonLabel(csvSchool, mapSchool, level, allResults) {
@@ -1412,6 +1452,9 @@
       if (isMatch) return "Match";
 
       if (allResults && allResults.csvHasMatch && allResults.otherLevelsMatch(level)) {
+        if (isLikelyWrongCsv(csvSchool, mapSchool, level)) {
+          return "Likely wrong CSV — fix row";
+        }
         return "Review — using CSV";
       }
 
@@ -1492,7 +1535,7 @@
             row("Middle", csvMiddle, geoMiddle) +
             row("High", csvHigh, geoHigh) +
           "</table>" +
-          "<p class='small'>Green = match. Yellow = missing or review. Red = major mismatch. When CSV matches an address range, CSV is the official assignment and Map/GeoJSON is a secondary validation check.</p>" +
+          "<p class='small'>Green = match. Yellow = missing or review. Red = likely wrong CSV or major mismatch. When CSV matches an address range, CSV is the official assignment, but red rows should be corrected or investigated.</p>" +
         "</div>" +
         "<br>" +
         "<span class='small'>" +
