@@ -597,21 +597,9 @@
 
     function cleanRangeType(value) {
       const text = String(value || "").trim().toLowerCase();
-
       if (text === "e" || text === "even") return "even";
       if (text === "o" || text === "odd") return "odd";
-
-      // Blank, ALL, both, or anything unclear should apply to both odd and even.
       return "all";
-    }
-
-    function addressMatchesOddEven(number, type) {
-      const cleanType = cleanRangeType(type);
-
-      if (cleanType === "even") return number % 2 === 0;
-      if (cleanType === "odd") return number % 2 !== 0;
-
-      return true;
     }
 
     function cleanRangeDirection(value) {
@@ -751,8 +739,9 @@
         if (number < item.low || number > item.highNumber) continue;
 
         // 4. Odd/even must match.
-        // This is critical for streets where one side of the street has a different school.
-        if (!addressMatchesOddEven(number, item.type)) continue;
+        const type = String(item.type || "all").toLowerCase();
+        if (type === "even" && number % 2 !== 0) continue;
+        if (type === "odd" && number % 2 !== 1) continue;
 
         possibleMatches.push(item);
       }
@@ -1029,37 +1018,11 @@
       };
     }
 
-    function getZonesForLevel(level) {
-      const elementaryData =
-        (typeof elementaryGeoJson !== "undefined" && elementaryGeoJson) ? elementaryGeoJson :
-        (typeof elementaryZones !== "undefined" && elementaryZones) ? elementaryZones :
-        (typeof zonesByLevel !== "undefined" && zonesByLevel && zonesByLevel.Elementary) ? zonesByLevel.Elementary :
-        null;
-
-      const middleData =
-        (typeof middleGeoJson !== "undefined" && middleGeoJson) ? middleGeoJson :
-        (typeof middleZones !== "undefined" && middleZones) ? middleZones :
-        (typeof zonesByLevel !== "undefined" && zonesByLevel && zonesByLevel.Middle) ? zonesByLevel.Middle :
-        null;
-
-      const highData =
-        (typeof highGeoJson !== "undefined" && highGeoJson) ? highGeoJson :
-        (typeof highZones !== "undefined" && highZones) ? highZones :
-        (typeof zonesByLevel !== "undefined" && zonesByLevel && zonesByLevel.High) ? zonesByLevel.High :
-        null;
-
-      if (level === "Elementary") return elementaryData;
-      if (level === "Middle") return middleData;
-      if (level === "High") return highData;
-      return null;
-    }
-
     function findZonedSchool(lat, lng, level) {
       const levelZones = zones[level];
       if (!levelZones || levelZones.length === 0) return null;
 
       const tolerance = 0.0005;
-
       const testPoints = [
         [lng, lat],
         [lng + tolerance, lat],
@@ -1072,115 +1035,696 @@
         [lng - tolerance, lat + tolerance]
       ];
 
-      const voteCounts = {};
-      const featureMap = {};
-
       for (const zone of levelZones) {
         const polygons = getFeaturePolygons(zone);
 
         for (const polygon of polygons) {
           for (const point of testPoints) {
             if (pointInPolygon(point, polygon)) {
-              const name = getSchoolName(zone.properties);
-
-              voteCounts[name] = (voteCounts[name] || 0) + 1;
-              featureMap[name] = zone;
+              return {
+                name: getSchoolName(zone.properties),
+                feature: zone
+              };
             }
           }
         }
-      }
-
-      let bestSchool = null;
-      let bestCount = 0;
-
-      for (const name in voteCounts) {
-        if (voteCounts[name] > bestCount) {
-          bestSchool = name;
-          bestCount = voteCounts[name];
-        }
-      }
-
-      if (bestSchool) {
-        return {
-          name: bestSchool,
-          feature: featureMap[bestSchool]
-        };
       }
 
       return null;
     }
 
     function pointInsideAnyPusdZone(lat, lng) {
-      const allZoneFiles = [
-        getZonesForLevel("Elementary"),
-        getZonesForLevel("Middle"),
-        getZonesForLevel("High")
-      ];
+      return (
+        findZonedSchool(lat, lng, "High") ||
+        findZonedSchool(lat, lng, "Middle") ||
+        findZonedSchool(lat, lng, "Elementary")
+      );
+    }
 
-      for (const zones of allZoneFiles) {
-        if (!zones || !zones.features) continue;
+    function findZoneFeatureBySchoolName(schoolName, level) {
+      const levelZones = zones[level] || [];
 
-        for (const feature of zones.features) {
-          if (pointInFeature(lat, lng, feature)) {
-            return true;
-          }
+      for (const zone of levelZones) {
+        if (getSchoolName(zone.properties) === schoolName) {
+          return zone;
         }
       }
 
-      return false;
+      return null;
     }
 
     // =====================================================
     // GEOCODING
+    // No manual address overrides.
+    // The app gathers multiple geocoder results and prefers the one that lands
+    // inside your uploaded Pasadena Unified school zone files.
     // =====================================================
     async function geocodeAddress(address, level) {
-      const query = String(address || "").trim();
-      if (!query) return null;
+      const candidates = [];
+      const seen = new Set();
 
-      const url =
-        "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates" +
-        "?f=json" +
-        "&maxLocations=5" +
-        "&outFields=Match_addr,Addr_type,Score" +
-        "&countryCode=USA" +
-        "&singleLine=" + encodeURIComponent(query);
+      // ArcGIS usually handles exact street addresses better.
+      await addArcGisCandidates(address, candidates, seen);
 
-      const response = await fetch(url);
-      if (!response.ok) return null;
+      // These are backups if ArcGIS does not find the address.
+      await addNominatimCandidates(address, candidates, seen);
+      await addPhotonCandidates(address, candidates, seen);
 
-      const data = await response.json();
-      const candidates = data && data.candidates ? data.candidates : [];
-      if (!candidates.length) return null;
+      if (candidates.length === 0) {
+        return null;
+      }
 
-      let bestCandidate = null;
-      let bestScore = -1;
-
+      // Best: result falls inside the selected level boundary.
       for (const candidate of candidates) {
-        if (!candidate || !candidate.location) continue;
-
-        const lat = candidate.location.y;
-        const lng = candidate.location.x;
-        const score = Number(candidate.score || 0);
-
-        // Prefer candidates that actually fall inside any uploaded PUSD zone.
-        const insidePusd = pointInsideAnyPusdZone(lat, lng);
-        const adjustedScore = insidePusd ? score + 1000 : score;
-
-        if (adjustedScore > bestScore) {
-          bestScore = adjustedScore;
-          bestCandidate = candidate;
+        const match = findZonedSchool(candidate.lat, candidate.lng, level);
+        if (match) {
+          candidate.boundaryMatch = match;
+          candidate.matchQuality = "selected-level-boundary";
+          return candidate;
         }
       }
 
-      if (!bestCandidate || !bestCandidate.location) return null;
+      // Second best: result falls anywhere inside uploaded PUSD boundaries.
+      for (const candidate of candidates) {
+        const anyPusdMatch = pointInsideAnyPusdZone(candidate.lat, candidate.lng);
+        if (anyPusdMatch) {
+          candidate.matchQuality = "inside-pusd-boundary";
+          return candidate;
+        }
+      }
 
-      return {
-        lat: bestCandidate.location.y,
-        lng: bestCandidate.location.x,
-        label: bestCandidate.address || bestCandidate.attributes?.Match_addr || query,
-        source: "ArcGIS",
-        matchQuality: bestCandidate.attributes?.Addr_type || "geocoder"
+      // Third best: result is inside the overall area covered by your zone files.
+      for (const candidate of candidates) {
+        if (pointInsideDistrictBounds(candidate.lat, candidate.lng)) {
+          candidate.matchQuality = "inside-zone-bounds";
+          return candidate;
+        }
+      }
+
+      candidates[0].matchQuality = "outside-pusd-boundary";
+      return candidates[0];
+    }
+
+    function addCandidate(candidates, seen, lat, lng, label, source) {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+      const key = lat.toFixed(6) + "," + lng.toFixed(6);
+      if (seen.has(key)) return;
+
+      seen.add(key);
+      candidates.push({
+        lat: lat,
+        lng: lng,
+        label: label || "Unknown location",
+        source: source
+      });
+    }
+
+    async function addArcGisCandidates(address, candidates, seen) {
+      const queries = [
+        address,
+        address + ", CA",
+        address + ", San Gabriel, CA",
+        address + ", Pasadena, CA",
+        address + ", Los Angeles County, CA"
+      ];
+
+      for (const query of queries) {
+        let url =
+          "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates" +
+          "?f=json" +
+          "&maxLocations=10" +
+          "&outFields=Match_addr,Addr_type,Score" +
+          "&SingleLine=" + encodeURIComponent(query);
+
+        if (districtBounds) {
+          url +=
+            "&searchExtent=" +
+            districtBounds.minLng + "," +
+            districtBounds.minLat + "," +
+            districtBounds.maxLng + "," +
+            districtBounds.maxLat;
+        }
+
+        try {
+          const response = await fetch(url);
+          if (!response.ok) continue;
+
+          const data = await response.json();
+          const results = data.candidates || [];
+
+          for (const result of results) {
+            if (!result.location) continue;
+
+            addCandidate(
+              candidates,
+              seen,
+              Number(result.location.y),
+              Number(result.location.x),
+              result.address || query,
+              "ArcGIS"
+            );
+          }
+        } catch (error) {
+          console.warn("ArcGIS failed for query:", query, error);
+        }
+      }
+    }
+
+    async function addNominatimCandidates(address, candidates, seen) {
+      const queries = [
+        address,
+        address + ", CA, USA",
+        address + ", Pasadena, CA, USA",
+        address + ", Altadena, CA, USA",
+        address + ", Sierra Madre, CA, USA",
+        address + ", San Gabriel, CA, USA",
+        address + ", Los Angeles County, CA, USA",
+        address + ", Pasadena Unified School District, CA, USA"
+      ];
+
+      for (const query of queries) {
+        let url =
+          "https://nominatim.openstreetmap.org/search" +
+          "?format=json" +
+          "&limit=10" +
+          "&addressdetails=1" +
+          "&countrycodes=us";
+
+        if (districtBounds) {
+          // Nominatim viewbox order: left,top,right,bottom
+          url +=
+            "&viewbox=" +
+            districtBounds.minLng + "," +
+            districtBounds.maxLat + "," +
+            districtBounds.maxLng + "," +
+            districtBounds.minLat;
+        }
+
+        url += "&q=" + encodeURIComponent(query);
+
+        try {
+          const response = await fetch(url, {
+            headers: { Accept: "application/json" }
+          });
+
+          if (!response.ok) continue;
+
+          const results = await response.json();
+          if (!results || results.length === 0) continue;
+
+          for (const result of results) {
+            addCandidate(
+              candidates,
+              seen,
+              Number(result.lat),
+              Number(result.lon),
+              result.display_name || query,
+              "Nominatim"
+            );
+          }
+        } catch (error) {
+          console.warn("Nominatim failed for query:", query, error);
+        }
+      }
+    }
+
+    async function addPhotonCandidates(address, candidates, seen) {
+      const queries = [
+        address,
+        address + ", CA",
+        address + ", Pasadena CA",
+        address + ", Altadena CA",
+        address + ", Sierra Madre CA",
+        address + ", San Gabriel CA"
+      ];
+
+      for (const query of queries) {
+        let url = "https://photon.komoot.io/api/?limit=10&q=" + encodeURIComponent(query);
+
+        if (districtBounds) {
+          const centerLat = (districtBounds.minLat + districtBounds.maxLat) / 2;
+          const centerLng = (districtBounds.minLng + districtBounds.maxLng) / 2;
+          url += "&lat=" + centerLat + "&lon=" + centerLng;
+        }
+
+        try {
+          const response = await fetch(url);
+          if (!response.ok) continue;
+
+          const data = await response.json();
+          const features = data.features || [];
+
+          for (const feature of features) {
+            if (!feature.geometry || !feature.geometry.coordinates) continue;
+
+            const lng = Number(feature.geometry.coordinates[0]);
+            const lat = Number(feature.geometry.coordinates[1]);
+            const props = feature.properties || {};
+
+            const labelParts = [
+              props.name,
+              props.street,
+              props.city,
+              props.state,
+              props.country
+            ].filter(Boolean);
+
+            addCandidate(
+              candidates,
+              seen,
+              lat,
+              lng,
+              labelParts.join(", ") || query,
+              "Photon"
+            );
+          }
+        } catch (error) {
+          console.warn("Photon failed for query:", query, error);
+        }
+      }
+    }
+
+    // =====================================================
+    // MAP DISPLAY
+    // =====================================================
+    function drawSearchPoint(lat, lng, label) {
+      if (userMarker) map.removeLayer(userMarker);
+
+      userMarker = L.marker([lat, lng])
+        .addTo(map)
+        .bindPopup(escapeHtml(label))
+        .openPopup();
+
+      map.setView([lat, lng], 15);
+    }
+
+    function drawSelectedZone(feature) {
+      if (selectedZoneLayer) map.removeLayer(selectedZoneLayer);
+
+      selectedZoneLayer = L.geoJSON(feature, {
+        style: {
+          color: "#2f6fed",
+          weight: 3,
+          fillOpacity: 0.15
+        }
+      }).addTo(map);
+    }
+
+    function drawDistrictBoundary() {
+      if (districtBoundaryLayer) map.removeLayer(districtBoundaryLayer);
+
+      const allFeatures = [];
+
+      for (const level of ["High", "Middle", "Elementary"]) {
+        for (const feature of zones[level]) {
+          allFeatures.push(feature);
+        }
+      }
+
+      districtBoundaryLayer = L.geoJSON(allFeatures, {
+        style: {
+          color: "#444",
+          weight: 1,
+          fillOpacity: 0.04
+        }
+      }).addTo(map);
+
+      districtBoundaryLayer.bringToBack();
+    }
+
+    // =====================================================
+    // RESULT CARD
+    // =====================================================
+    function buildSchoolCard(schoolName, level, location) {
+      const info = getSchoolDetails(schoolName);
+
+      return (
+        "<span class='success'>✅ Zoned School Found</span>" +
+        "<div class='school-card'>" +
+          "<h3>" + escapeHtml(schoolName) + "</h3>" +
+          "<p><b>School level:</b> " + escapeHtml(level) + " School</p>" +
+          "<p><b>Description:</b><br>" + formatDescription(info.description) + "</p>" +
+          "<p><b>Address:</b> " + escapeHtml(info.address || "N/A") + "</p>" +
+          "<p><b>Phone:</b> " + escapeHtml(info.phone || "N/A") + "</p>" +
+          "<p><b>Grades:</b> " + escapeHtml(info.grades || "N/A") + "</p>" +
+          makeWebsiteLink(info.website) +
+        "</div>" +
+        "<br>" +
+        "<span class='small'>" +
+          "<b>Geocoded location:</b><br>" +
+          escapeHtml(location.label) +
+          "<br>Lat: " + location.lat.toFixed(6) +
+          ", Lng: " + location.lng.toFixed(6) +
+          "<br>Source: " + escapeHtml(location.source || "geocoder") +
+          "<br>Match: " + escapeHtml(location.matchQuality || "boundary check") +
+        "</span>"
+      );
+    }
+
+    function normalizeSchoolForCompare(name) {
+      const fixed = schoolNameFixes[name] || name || "";
+      return String(fixed).toLowerCase().replace(/[^a-z0-9]+/g, "").trim();
+    }
+
+    function comparisonClass(csvSchool, mapSchool, level, allResults) {
+      if (!csvSchool || !mapSchool) return "missing";
+
+      const isMatch = normalizeSchoolForCompare(csvSchool) === normalizeSchoolForCompare(mapSchool);
+      if (isMatch) return "match";
+
+      // If CSV exists and only this level differs, treat it as a review warning,
+      // not a hard failure. This is common near elementary boundary edges.
+      if (allResults && allResults.csvHasMatch) {
+        const otherLevelsMatch = allResults.otherLevelsMatch(level);
+        if (otherLevelsMatch) return "missing";
+      }
+
+      return "mismatch";
+    }
+
+    function comparisonLabel(csvSchool, mapSchool, level, allResults) {
+      if (!csvSchool && !mapSchool) return "Missing both";
+      if (!csvSchool) return "Missing in CSV";
+      if (!mapSchool) return "Missing on map";
+
+      const isMatch = normalizeSchoolForCompare(csvSchool) === normalizeSchoolForCompare(mapSchool);
+      if (isMatch) return "Match";
+
+      if (allResults && allResults.csvHasMatch && allResults.otherLevelsMatch(level)) {
+        return "Review — using CSV";
+      }
+
+      return "Mismatch — check CSV/map";
+    }
+
+    function buildComparisonCard(rangeMatch, geoResults, location) {
+      const csvElementary = rangeMatch ? rangeMatch.elementary : "";
+      const csvMiddle = rangeMatch ? rangeMatch.middle : "";
+      const csvHigh = rangeMatch ? rangeMatch.highSchool : "";
+
+      const geoElementary = geoResults.elementary || "";
+      const geoMiddle = geoResults.middle || "";
+      const geoHigh = geoResults.high || "";
+
+      const allResults = {
+        csvHasMatch: !!rangeMatch,
+        otherLevelsMatch: function(level) {
+          const checks = [
+            {
+              level: "Elementary",
+              csv: csvElementary,
+              map: geoElementary
+            },
+            {
+              level: "Middle",
+              csv: csvMiddle,
+              map: geoMiddle
+            },
+            {
+              level: "High",
+              csv: csvHigh,
+              map: geoHigh
+            }
+          ];
+
+          const otherChecks = checks.filter(item => item.level !== level);
+          return otherChecks.every(item =>
+            item.csv &&
+            item.map &&
+            normalizeSchoolForCompare(item.csv) === normalizeSchoolForCompare(item.map)
+          );
+        }
       };
+
+      function row(label, csvSchool, mapSchool) {
+        const rowClass = comparisonClass(csvSchool, mapSchool, label, allResults);
+        return (
+          "<tr class='" + rowClass + "'>" +
+            "<td>" + escapeHtml(label) + "</td>" +
+            "<td>" + escapeHtml(csvSchool || "—") + "</td>" +
+            "<td>" + escapeHtml(mapSchool || "—") + "</td>" +
+            "<td>" + escapeHtml(comparisonLabel(csvSchool, mapSchool, label, allResults)) + "</td>" +
+          "</tr>"
+        );
+      }
+
+      let matchedRangeText = "No CSV range matched";
+      if (rangeMatch) {
+        matchedRangeText =
+          rangeMatch.low + "–" + rangeMatch.highNumber + " " +
+          (rangeMatch.direction ? rangeMatch.direction.toUpperCase() + " " : "") +
+          rangeMatch.street;
+      }
+
+      return (
+        "<div class='school-card'>" +
+          "<h3>📊 CSV vs Map Validation</h3>" +
+          "<p><b>Matched CSV range:</b> " + escapeHtml(matchedRangeText) + "</p>" +
+          "<table class='comparison-table'>" +
+            "<tr>" +
+              "<th>Level</th>" +
+              "<th>CSV result</th>" +
+              "<th>Map / GeoJSON result</th>" +
+              "<th>Status</th>" +
+            "</tr>" +
+            row("Elementary", csvElementary, geoElementary) +
+            row("Middle", csvMiddle, geoMiddle) +
+            row("High", csvHigh, geoHigh) +
+          "</table>" +
+          "<p class='small'>Green = match. Yellow = missing or review. Red = major mismatch. When CSV matches an address range, CSV is the official assignment and Map/GeoJSON is a secondary validation check.</p>" +
+        "</div>" +
+        "<br>" +
+        "<span class='small'>" +
+          "<b>Geocoded location:</b><br>" +
+          escapeHtml(location.label) +
+          "<br>Lat: " + location.lat.toFixed(6) +
+          ", Lng: " + location.lng.toFixed(6) +
+          "<br>Source: " + escapeHtml(location.source || "geocoder") +
+        "</span>"
+      );
+    }
+
+    // =====================================================
+    // CSV QUALITY CHECK
+    // =====================================================
+    function sameText(a, b) {
+      return normalizeSchoolForCompare(a) === normalizeSchoolForCompare(b);
+    }
+
+    function rowRangeText(row) {
+      return (
+        row.low + "–" + row.highNumber + " " +
+        (row.direction ? row.direction.toUpperCase() + " " : "") +
+        row.street +
+        (row.city ? ", " + row.city : "") +
+        (row.zip ? " " + row.zip : "")
+      );
+    }
+
+    function addCsvIssue(type, severity, rowA, rowB, note) {
+      csvIssueResults.push({
+        type: type,
+        severity: severity,
+        rowA: rowA ? rowRangeText(rowA) : "",
+        rowB: rowB ? rowRangeText(rowB) : "",
+        elementaryA: rowA ? rowA.elementary : "",
+        elementaryB: rowB ? rowB.elementary : "",
+        middleA: rowA ? rowA.middle : "",
+        middleB: rowB ? rowB.middle : "",
+        highA: rowA ? rowA.highSchool : "",
+        highB: rowB ? rowB.highSchool : "",
+        note: note
+      });
+    }
+
+    function rangesOverlap(a, b) {
+      return a.low <= b.highNumber && b.low <= a.highNumber;
+    }
+
+    function rangesTouchOrOverlap(a, b) {
+      return a.low <= b.highNumber + 1 && b.low <= a.highNumber + 1;
+    }
+
+    function sameStreetKey(a, b) {
+      return (
+        normalizeAddressText(a.street) === normalizeAddressText(b.street) &&
+        normalizeAddressText(a.city || "") === normalizeAddressText(b.city || "") &&
+        String(a.zip || "").trim() === String(b.zip || "").trim() &&
+        String(a.direction || "").toLowerCase() === String(b.direction || "").toLowerCase() &&
+        String(a.type || "all").toLowerCase() === String(b.type || "all").toLowerCase()
+      );
+    }
+
+    function scanCsvForBoundaryIssues() {
+      const box = document.getElementById("csvScanBox");
+      csvIssueResults = [];
+      downloadCsvIssuesBtn.disabled = true;
+
+      if (!addressRanges || addressRanges.length === 0) {
+        box.innerHTML = "<span class='error'>No address-ranges.csv rows are loaded yet.</span>";
+        return;
+      }
+
+      box.innerHTML = "Scanning " + addressRanges.length + " rows...";
+
+      const sorted = addressRanges.slice().sort(function(a, b) {
+        const streetA = normalizeAddressText(a.street || "");
+        const streetB = normalizeAddressText(b.street || "");
+        if (streetA !== streetB) return streetA.localeCompare(streetB);
+
+        const cityA = normalizeAddressText(a.city || "");
+        const cityB = normalizeAddressText(b.city || "");
+        if (cityA !== cityB) return cityA.localeCompare(cityB);
+
+        const zipA = String(a.zip || "");
+        const zipB = String(b.zip || "");
+        if (zipA !== zipB) return zipA.localeCompare(zipB);
+
+        const dirA = String(a.direction || "");
+        const dirB = String(b.direction || "");
+        if (dirA !== dirB) return dirA.localeCompare(dirB);
+
+        return a.low - b.low;
+      });
+
+      for (let i = 0; i < sorted.length; i++) {
+        const row = sorted[i];
+
+        if (!row.street || !Number.isFinite(row.low) || !Number.isFinite(row.highNumber)) {
+          addCsvIssue("Invalid row", "High", row, null, "Missing street name or invalid Low/High Number.");
+          continue;
+        }
+
+        if (row.low > row.highNumber) {
+          addCsvIssue("Invalid range", "High", row, null, "Low Number is greater than High Number.");
+        }
+      }
+
+      for (let i = 0; i < sorted.length; i++) {
+        const a = sorted[i];
+
+        for (let j = i + 1; j < sorted.length; j++) {
+          const b = sorted[j];
+
+          if (!sameStreetKey(a, b)) {
+            const sameStreetOnly = normalizeAddressText(a.street) === normalizeAddressText(b.street);
+            if (!sameStreetOnly) break;
+            continue;
+          }
+
+          if (b.low > a.highNumber + 50) break;
+
+          const sameElementary = sameText(a.elementary, b.elementary);
+          const sameMiddle = sameText(a.middle, b.middle);
+          const sameHigh = sameText(a.highSchool, b.highSchool);
+
+          if (rangesOverlap(a, b) && (!sameElementary || !sameMiddle || !sameHigh)) {
+            addCsvIssue(
+              "Overlapping ranges with different schools",
+              "High",
+              a,
+              b,
+              "These rows overlap but do not have identical school assignments. Review carefully."
+            );
+          }
+
+          if (rangesTouchOrOverlap(a, b) && sameMiddle && sameHigh && !sameElementary) {
+            addCsvIssue(
+              "Elementary-only split",
+              "Review",
+              a,
+              b,
+              "Middle and High match, but Elementary changes. This may be a real elementary boundary edge like Figueroa, or it may need review."
+            );
+          }
+        }
+      }
+
+      const highCount = csvIssueResults.filter(item => item.severity === "High").length;
+      const reviewCount = csvIssueResults.filter(item => item.severity === "Review").length;
+
+      let html =
+        "<b>CSV scan complete.</b><br>" +
+        "Rows scanned: " + addressRanges.length + "<br>" +
+        "High-priority issues: " + highCount + "<br>" +
+        "Review items: " + reviewCount + "<br><br>";
+
+      if (csvIssueResults.length === 0) {
+        html += "<span class='success'>No obvious CSV boundary issues found.</span>";
+      } else {
+        html += "<b>First 20 issues:</b><br>";
+        html += "<ol>";
+        csvIssueResults.slice(0, 20).forEach(function(issue) {
+          html +=
+            "<li><b>" + escapeHtml(issue.severity) + " — " + escapeHtml(issue.type) + "</b><br>" +
+            "Row A: " + escapeHtml(issue.rowA) + "<br>" +
+            (issue.rowB ? "Row B: " + escapeHtml(issue.rowB) + "<br>" : "") +
+            escapeHtml(issue.note) +
+            "</li>";
+        });
+        html += "</ol>";
+
+        if (csvIssueResults.length > 20) {
+          html += "Showing first 20 only. Download the full issue list as CSV.";
+        }
+
+        downloadCsvIssuesBtn.disabled = false;
+      }
+
+      box.innerHTML = html;
+    }
+
+    function csvEscape(value) {
+      const text = String(value === undefined || value === null ? "" : value);
+      const quote = String.fromCharCode(34);
+      const comma = String.fromCharCode(44);
+      const newline = String.fromCharCode(10);
+
+      if (text.includes(comma) || text.includes(quote) || text.includes(newline)) {
+        return quote + text.replaceAll(quote, quote + quote) + quote;
+      }
+
+      return text;
+    }
+
+    function downloadCsvIssues() {
+      if (!csvIssueResults || csvIssueResults.length === 0) {
+        alert("No CSV issues to download.");
+        return;
+      }
+
+      const headers = [
+        "type",
+        "severity",
+        "rowA",
+        "rowB",
+        "elementaryA",
+        "elementaryB",
+        "middleA",
+        "middleB",
+        "highA",
+        "highB",
+        "note"
+      ];
+
+      const lines = [headers.join(",")];
+
+      csvIssueResults.forEach(function(issue) {
+        lines.push(headers.map(function(header) {
+          return csvEscape(issue[header]);
+        }).join(","));
+      });
+
+      const blob = new Blob([lines.join(String.fromCharCode(10))], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "csv-boundary-issues.csv";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
     }
 
     // =====================================================
