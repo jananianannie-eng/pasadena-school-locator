@@ -1029,305 +1029,70 @@
       };
     }
 
+    function getZonesForLevel(level) {
+      if (level === "Elementary") return elementaryZones;
+      if (level === "Middle") return middleZones;
+      if (level === "High") return highZones;
+      return [];
+    }
+
     function findZonedSchool(lat, lng, level) {
-      const levelZones = zones[level];
-      if (!levelZones || levelZones.length === 0) return null;
+      const zones = getZonesForLevel(level);
+      if (!zones || zones.length === 0) return null;
 
-      const tolerance = 0.0005;
-      const testPoints = [
-        [lng, lat],
-        [lng + tolerance, lat],
-        [lng - tolerance, lat],
-        [lng, lat + tolerance],
-        [lng, lat - tolerance],
-        [lng + tolerance, lat + tolerance],
-        [lng - tolerance, lat - tolerance],
-        [lng + tolerance, lat - tolerance],
-        [lng - tolerance, lat + tolerance]
+      // Majority-based tolerance check.
+      // This helps when the geocoder point lands slightly on the wrong side of a street or boundary.
+      const offsets = [
+        [0, 0],
+        [0.00005, 0],
+        [-0.00005, 0],
+        [0, 0.00005],
+        [0, -0.00005],
+        [0.00005, 0.00005],
+        [-0.00005, -0.00005],
+        [0.00005, -0.00005],
+        [-0.00005, 0.00005]
       ];
 
-      for (const zone of levelZones) {
-        const polygons = getFeaturePolygons(zone);
+      const votes = {};
+      const resultsByName = {};
 
-        for (const polygon of polygons) {
-          for (const point of testPoints) {
-            if (pointInPolygon(point, polygon)) {
-              return {
-                name: getSchoolName(zone.properties),
-                feature: zone
-              };
-            }
+      for (const offset of offsets) {
+        const testLng = lng + offset[0];
+        const testLat = lat + offset[1];
+
+        for (const feature of zones.features || []) {
+          if (pointInFeature(testLat, testLng, feature)) {
+            const rawName = getFeatureSchoolName(feature);
+            const fixedName = schoolNameFixes[rawName] || rawName;
+
+            votes[fixedName] = (votes[fixedName] || 0) + 1;
+            resultsByName[fixedName] = {
+              name: fixedName,
+              rawName: rawName,
+              feature: feature,
+              voteCount: votes[fixedName]
+            };
           }
         }
+      }
+
+      let bestName = "";
+      let bestCount = 0;
+
+      for (const name of Object.keys(votes)) {
+        if (votes[name] > bestCount) {
+          bestName = name;
+          bestCount = votes[name];
+        }
+      }
+
+      if (bestName && resultsByName[bestName]) {
+        resultsByName[bestName].voteCount = bestCount;
+        return resultsByName[bestName];
       }
 
       return null;
-    }
-
-    function pointInsideAnyPusdZone(lat, lng) {
-      return (
-        findZonedSchool(lat, lng, "High") ||
-        findZonedSchool(lat, lng, "Middle") ||
-        findZonedSchool(lat, lng, "Elementary")
-      );
-    }
-
-    function findZoneFeatureBySchoolName(schoolName, level) {
-      const levelZones = zones[level] || [];
-
-      for (const zone of levelZones) {
-        if (getSchoolName(zone.properties) === schoolName) {
-          return zone;
-        }
-      }
-
-      return null;
-    }
-
-    // =====================================================
-    // GEOCODING
-    // No manual address overrides.
-    // The app gathers multiple geocoder results and prefers the one that lands
-    // inside your uploaded Pasadena Unified school zone files.
-    // =====================================================
-    async function geocodeAddress(address, level) {
-      const candidates = [];
-      const seen = new Set();
-
-      // ArcGIS usually handles exact street addresses better.
-      await addArcGisCandidates(address, candidates, seen);
-
-      // These are backups if ArcGIS does not find the address.
-      await addNominatimCandidates(address, candidates, seen);
-      await addPhotonCandidates(address, candidates, seen);
-
-      if (candidates.length === 0) {
-        return null;
-      }
-
-      // Best: result falls inside the selected level boundary.
-      for (const candidate of candidates) {
-        const match = findZonedSchool(candidate.lat, candidate.lng, level);
-        if (match) {
-          candidate.boundaryMatch = match;
-          candidate.matchQuality = "selected-level-boundary";
-          return candidate;
-        }
-      }
-
-      // Second best: result falls anywhere inside uploaded PUSD boundaries.
-      for (const candidate of candidates) {
-        const anyPusdMatch = pointInsideAnyPusdZone(candidate.lat, candidate.lng);
-        if (anyPusdMatch) {
-          candidate.matchQuality = "inside-pusd-boundary";
-          return candidate;
-        }
-      }
-
-      // Third best: result is inside the overall area covered by your zone files.
-      for (const candidate of candidates) {
-        if (pointInsideDistrictBounds(candidate.lat, candidate.lng)) {
-          candidate.matchQuality = "inside-zone-bounds";
-          return candidate;
-        }
-      }
-
-      candidates[0].matchQuality = "outside-pusd-boundary";
-      return candidates[0];
-    }
-
-    function addCandidate(candidates, seen, lat, lng, label, source) {
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-
-      const key = lat.toFixed(6) + "," + lng.toFixed(6);
-      if (seen.has(key)) return;
-
-      seen.add(key);
-      candidates.push({
-        lat: lat,
-        lng: lng,
-        label: label || "Unknown location",
-        source: source
-      });
-    }
-
-    async function addArcGisCandidates(address, candidates, seen) {
-      const queries = [
-        address,
-        address + ", CA",
-        address + ", San Gabriel, CA",
-        address + ", Pasadena, CA",
-        address + ", Los Angeles County, CA"
-      ];
-
-      for (const query of queries) {
-        let url =
-          "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates" +
-          "?f=json" +
-          "&maxLocations=10" +
-          "&outFields=Match_addr,Addr_type,Score" +
-          "&SingleLine=" + encodeURIComponent(query);
-
-        if (districtBounds) {
-          url +=
-            "&searchExtent=" +
-            districtBounds.minLng + "," +
-            districtBounds.minLat + "," +
-            districtBounds.maxLng + "," +
-            districtBounds.maxLat;
-        }
-
-        try {
-          const response = await fetch(url);
-          if (!response.ok) continue;
-
-          const data = await response.json();
-          const results = data.candidates || [];
-
-          for (const result of results) {
-            if (!result.location) continue;
-
-            addCandidate(
-              candidates,
-              seen,
-              Number(result.location.y),
-              Number(result.location.x),
-              result.address || query,
-              "ArcGIS"
-            );
-          }
-        } catch (error) {
-          console.warn("ArcGIS failed for query:", query, error);
-        }
-      }
-    }
-
-    async function addNominatimCandidates(address, candidates, seen) {
-      const queries = [
-        address,
-        address + ", CA, USA",
-        address + ", Pasadena, CA, USA",
-        address + ", Altadena, CA, USA",
-        address + ", Sierra Madre, CA, USA",
-        address + ", San Gabriel, CA, USA",
-        address + ", Los Angeles County, CA, USA",
-        address + ", Pasadena Unified School District, CA, USA"
-      ];
-
-      for (const query of queries) {
-        let url =
-          "https://nominatim.openstreetmap.org/search" +
-          "?format=json" +
-          "&limit=10" +
-          "&addressdetails=1" +
-          "&countrycodes=us";
-
-        if (districtBounds) {
-          // Nominatim viewbox order: left,top,right,bottom
-          url +=
-            "&viewbox=" +
-            districtBounds.minLng + "," +
-            districtBounds.maxLat + "," +
-            districtBounds.maxLng + "," +
-            districtBounds.minLat;
-        }
-
-        url += "&q=" + encodeURIComponent(query);
-
-        try {
-          const response = await fetch(url, {
-            headers: { Accept: "application/json" }
-          });
-
-          if (!response.ok) continue;
-
-          const results = await response.json();
-          if (!results || results.length === 0) continue;
-
-          for (const result of results) {
-            addCandidate(
-              candidates,
-              seen,
-              Number(result.lat),
-              Number(result.lon),
-              result.display_name || query,
-              "Nominatim"
-            );
-          }
-        } catch (error) {
-          console.warn("Nominatim failed for query:", query, error);
-        }
-      }
-    }
-
-    async function addPhotonCandidates(address, candidates, seen) {
-      const queries = [
-        address,
-        address + ", CA",
-        address + ", Pasadena CA",
-        address + ", Altadena CA",
-        address + ", Sierra Madre CA",
-        address + ", San Gabriel CA"
-      ];
-
-      for (const query of queries) {
-        let url = "https://photon.komoot.io/api/?limit=10&q=" + encodeURIComponent(query);
-
-        if (districtBounds) {
-          const centerLat = (districtBounds.minLat + districtBounds.maxLat) / 2;
-          const centerLng = (districtBounds.minLng + districtBounds.maxLng) / 2;
-          url += "&lat=" + centerLat + "&lon=" + centerLng;
-        }
-
-        try {
-          const response = await fetch(url);
-          if (!response.ok) continue;
-
-          const data = await response.json();
-          const features = data.features || [];
-
-          for (const feature of features) {
-            if (!feature.geometry || !feature.geometry.coordinates) continue;
-
-            const lng = Number(feature.geometry.coordinates[0]);
-            const lat = Number(feature.geometry.coordinates[1]);
-            const props = feature.properties || {};
-
-            const labelParts = [
-              props.name,
-              props.street,
-              props.city,
-              props.state,
-              props.country
-            ].filter(Boolean);
-
-            addCandidate(
-              candidates,
-              seen,
-              lat,
-              lng,
-              labelParts.join(", ") || query,
-              "Photon"
-            );
-          }
-        } catch (error) {
-          console.warn("Photon failed for query:", query, error);
-        }
-      }
-    }
-
-    // =====================================================
-    // MAP DISPLAY
-    // =====================================================
-    function drawSearchPoint(lat, lng, label) {
-      if (userMarker) map.removeLayer(userMarker);
-
-      userMarker = L.marker([lat, lng])
-        .addTo(map)
-        .bindPopup(escapeHtml(label))
-        .openPopup();
-
-      map.setView([lat, lng], 15);
     }
 
     function drawSelectedZone(feature) {
