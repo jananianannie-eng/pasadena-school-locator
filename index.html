@@ -1113,6 +1113,17 @@
       return null;
     }
 
+    function drawSearchPoint(lat, lng, label) {
+      if (!map) return;
+
+      if (searchMarker) {
+        map.removeLayer(searchMarker);
+      }
+
+      searchMarker = L.marker([lat, lng]).addTo(map);
+      searchMarker.bindPopup(escapeHtml(label || "Searched address"));
+    }
+
     function drawSelectedZone(feature) {
       if (selectedZoneLayer) map.removeLayer(selectedZoneLayer);
 
