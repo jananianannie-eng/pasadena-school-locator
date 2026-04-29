@@ -1030,9 +1030,27 @@
     }
 
     function getZonesForLevel(level) {
-      if (level === "Elementary") return elementaryGeoJson || zonesByLevel.Elementary || null;
-      if (level === "Middle") return middleGeoJson || zonesByLevel.Middle || null;
-      if (level === "High") return highGeoJson || zonesByLevel.High || null;
+      const elementaryData =
+        (typeof elementaryGeoJson !== "undefined" && elementaryGeoJson) ? elementaryGeoJson :
+        (typeof elementaryZones !== "undefined" && elementaryZones) ? elementaryZones :
+        (typeof zonesByLevel !== "undefined" && zonesByLevel && zonesByLevel.Elementary) ? zonesByLevel.Elementary :
+        null;
+
+      const middleData =
+        (typeof middleGeoJson !== "undefined" && middleGeoJson) ? middleGeoJson :
+        (typeof middleZones !== "undefined" && middleZones) ? middleZones :
+        (typeof zonesByLevel !== "undefined" && zonesByLevel && zonesByLevel.Middle) ? zonesByLevel.Middle :
+        null;
+
+      const highData =
+        (typeof highGeoJson !== "undefined" && highGeoJson) ? highGeoJson :
+        (typeof highZones !== "undefined" && highZones) ? highZones :
+        (typeof zonesByLevel !== "undefined" && zonesByLevel && zonesByLevel.High) ? zonesByLevel.High :
+        null;
+
+      if (level === "Elementary") return elementaryData;
+      if (level === "Middle") return middleData;
+      if (level === "High") return highData;
       return null;
     }
 
