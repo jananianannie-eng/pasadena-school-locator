@@ -1535,6 +1535,22 @@
       URL.revokeObjectURL(url);
     }
 
+    function pointInsideAnyPusdZone(lat, lng) {
+      const allZoneFiles = [elementaryZones, middleZones, highZones];
+
+      for (const zones of allZoneFiles) {
+        if (!zones || !zones.features) continue;
+
+        for (const feature of zones.features) {
+          if (pointInFeature(lat, lng, feature)) {
+            return true;
+          }
+        }
+      }
+
+      return false;
+    }
+
     // =====================================================
     // GEOCODING
     // =====================================================
