@@ -1030,10 +1030,10 @@
     }
 
     function getZonesForLevel(level) {
-      if (level === "Elementary") return elementaryZones;
-      if (level === "Middle") return middleZones;
-      if (level === "High") return highZones;
-      return [];
+      if (level === "Elementary") return elementaryGeoJson || zonesByLevel.Elementary || null;
+      if (level === "Middle") return middleGeoJson || zonesByLevel.Middle || null;
+      if (level === "High") return highGeoJson || zonesByLevel.High || null;
+      return null;
     }
 
     function findZonedSchool(lat, lng, level) {
@@ -1536,7 +1536,11 @@
     }
 
     function pointInsideAnyPusdZone(lat, lng) {
-      const allZoneFiles = [elementaryZones, middleZones, highZones];
+      const allZoneFiles = [
+        getZonesForLevel("Elementary"),
+        getZonesForLevel("Middle"),
+        getZonesForLevel("High")
+      ];
 
       for (const zones of allZoneFiles) {
         if (!zones || !zones.features) continue;
