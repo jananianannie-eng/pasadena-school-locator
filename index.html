@@ -597,21 +597,9 @@
 
     function cleanRangeType(value) {
       const text = String(value || "").trim().toLowerCase();
-
       if (text === "e" || text === "even") return "even";
       if (text === "o" || text === "odd") return "odd";
-
-      // Blank, ALL, both, or anything unclear should apply to both odd and even.
       return "all";
-    }
-
-    function addressMatchesOddEven(number, type) {
-      const cleanType = cleanRangeType(type);
-
-      if (cleanType === "even") return number % 2 === 0;
-      if (cleanType === "odd") return number % 2 !== 0;
-
-      return true;
     }
 
     function cleanRangeDirection(value) {
@@ -751,8 +739,9 @@
         if (number < item.low || number > item.highNumber) continue;
 
         // 4. Odd/even must match.
-        // This is critical for streets where one side of the street has a different school.
-        if (!addressMatchesOddEven(number, item.type)) continue;
+        const type = String(item.type || "all").toLowerCase();
+        if (type === "even" && number % 2 !== 0) continue;
+        if (type === "odd" && number % 2 !== 1) continue;
 
         possibleMatches.push(item);
       }
@@ -1029,99 +1018,305 @@
       };
     }
 
-    function getZonesForLevel(level) {
-      const elementaryData =
-        (typeof elementaryGeoJson !== "undefined" && elementaryGeoJson) ? elementaryGeoJson :
-        (typeof elementaryZones !== "undefined" && elementaryZones) ? elementaryZones :
-        (typeof zonesByLevel !== "undefined" && zonesByLevel && zonesByLevel.Elementary) ? zonesByLevel.Elementary :
-        null;
-
-      const middleData =
-        (typeof middleGeoJson !== "undefined" && middleGeoJson) ? middleGeoJson :
-        (typeof middleZones !== "undefined" && middleZones) ? middleZones :
-        (typeof zonesByLevel !== "undefined" && zonesByLevel && zonesByLevel.Middle) ? zonesByLevel.Middle :
-        null;
-
-      const highData =
-        (typeof highGeoJson !== "undefined" && highGeoJson) ? highGeoJson :
-        (typeof highZones !== "undefined" && highZones) ? highZones :
-        (typeof zonesByLevel !== "undefined" && zonesByLevel && zonesByLevel.High) ? zonesByLevel.High :
-        null;
-
-      if (level === "Elementary") return elementaryData;
-      if (level === "Middle") return middleData;
-      if (level === "High") return highData;
-      return null;
-    }
-
     function findZonedSchool(lat, lng, level) {
-      const zones = getZonesForLevel(level);
-      if (!zones || zones.length === 0) return null;
+      const levelZones = zones[level];
+      if (!levelZones || levelZones.length === 0) return null;
 
-      // Majority-based tolerance check.
-      // This helps when the geocoder point lands slightly on the wrong side of a street or boundary.
-      const offsets = [
-        [0, 0],
-        [0.00005, 0],
-        [-0.00005, 0],
-        [0, 0.00005],
-        [0, -0.00005],
-        [0.00005, 0.00005],
-        [-0.00005, -0.00005],
-        [0.00005, -0.00005],
-        [-0.00005, 0.00005]
+      const tolerance = 0.0005;
+      const testPoints = [
+        [lng, lat],
+        [lng + tolerance, lat],
+        [lng - tolerance, lat],
+        [lng, lat + tolerance],
+        [lng, lat - tolerance],
+        [lng + tolerance, lat + tolerance],
+        [lng - tolerance, lat - tolerance],
+        [lng + tolerance, lat - tolerance],
+        [lng - tolerance, lat + tolerance]
       ];
 
-      const votes = {};
-      const resultsByName = {};
+      for (const zone of levelZones) {
+        const polygons = getFeaturePolygons(zone);
 
-      for (const offset of offsets) {
-        const testLng = lng + offset[0];
-        const testLat = lat + offset[1];
-
-        for (const feature of zones.features || []) {
-          if (pointInFeature(testLat, testLng, feature)) {
-            const rawName = getFeatureSchoolName(feature);
-            const fixedName = schoolNameFixes[rawName] || rawName;
-
-            votes[fixedName] = (votes[fixedName] || 0) + 1;
-            resultsByName[fixedName] = {
-              name: fixedName,
-              rawName: rawName,
-              feature: feature,
-              voteCount: votes[fixedName]
-            };
+        for (const polygon of polygons) {
+          for (const point of testPoints) {
+            if (pointInPolygon(point, polygon)) {
+              return {
+                name: getSchoolName(zone.properties),
+                feature: zone
+              };
+            }
           }
         }
       }
 
-      let bestName = "";
-      let bestCount = 0;
+      return null;
+    }
 
-      for (const name of Object.keys(votes)) {
-        if (votes[name] > bestCount) {
-          bestName = name;
-          bestCount = votes[name];
+    function pointInsideAnyPusdZone(lat, lng) {
+      return (
+        findZonedSchool(lat, lng, "High") ||
+        findZonedSchool(lat, lng, "Middle") ||
+        findZonedSchool(lat, lng, "Elementary")
+      );
+    }
+
+    function findZoneFeatureBySchoolName(schoolName, level) {
+      const levelZones = zones[level] || [];
+
+      for (const zone of levelZones) {
+        if (getSchoolName(zone.properties) === schoolName) {
+          return zone;
         }
-      }
-
-      if (bestName && resultsByName[bestName]) {
-        resultsByName[bestName].voteCount = bestCount;
-        return resultsByName[bestName];
       }
 
       return null;
     }
 
-    function drawSearchPoint(lat, lng, label) {
-      if (!map) return;
+    // =====================================================
+    // GEOCODING
+    // No manual address overrides.
+    // The app gathers multiple geocoder results and prefers the one that lands
+    // inside your uploaded Pasadena Unified school zone files.
+    // =====================================================
+    async function geocodeAddress(address, level) {
+      const candidates = [];
+      const seen = new Set();
 
-      if (searchMarker) {
-        map.removeLayer(searchMarker);
+      // ArcGIS usually handles exact street addresses better.
+      await addArcGisCandidates(address, candidates, seen);
+
+      // These are backups if ArcGIS does not find the address.
+      await addNominatimCandidates(address, candidates, seen);
+      await addPhotonCandidates(address, candidates, seen);
+
+      if (candidates.length === 0) {
+        return null;
       }
 
-      searchMarker = L.marker([lat, lng]).addTo(map);
-      searchMarker.bindPopup(escapeHtml(label || "Searched address"));
+      // Best: result falls inside the selected level boundary.
+      for (const candidate of candidates) {
+        const match = findZonedSchool(candidate.lat, candidate.lng, level);
+        if (match) {
+          candidate.boundaryMatch = match;
+          candidate.matchQuality = "selected-level-boundary";
+          return candidate;
+        }
+      }
+
+      // Second best: result falls anywhere inside uploaded PUSD boundaries.
+      for (const candidate of candidates) {
+        const anyPusdMatch = pointInsideAnyPusdZone(candidate.lat, candidate.lng);
+        if (anyPusdMatch) {
+          candidate.matchQuality = "inside-pusd-boundary";
+          return candidate;
+        }
+      }
+
+      // Third best: result is inside the overall area covered by your zone files.
+      for (const candidate of candidates) {
+        if (pointInsideDistrictBounds(candidate.lat, candidate.lng)) {
+          candidate.matchQuality = "inside-zone-bounds";
+          return candidate;
+        }
+      }
+
+      candidates[0].matchQuality = "outside-pusd-boundary";
+      return candidates[0];
+    }
+
+    function addCandidate(candidates, seen, lat, lng, label, source) {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+      const key = lat.toFixed(6) + "," + lng.toFixed(6);
+      if (seen.has(key)) return;
+
+      seen.add(key);
+      candidates.push({
+        lat: lat,
+        lng: lng,
+        label: label || "Unknown location",
+        source: source
+      });
+    }
+
+    async function addArcGisCandidates(address, candidates, seen) {
+      const queries = [
+        address,
+        address + ", CA",
+        address + ", San Gabriel, CA",
+        address + ", Pasadena, CA",
+        address + ", Los Angeles County, CA"
+      ];
+
+      for (const query of queries) {
+        let url =
+          "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates" +
+          "?f=json" +
+          "&maxLocations=10" +
+          "&outFields=Match_addr,Addr_type,Score" +
+          "&SingleLine=" + encodeURIComponent(query);
+
+        if (districtBounds) {
+          url +=
+            "&searchExtent=" +
+            districtBounds.minLng + "," +
+            districtBounds.minLat + "," +
+            districtBounds.maxLng + "," +
+            districtBounds.maxLat;
+        }
+
+        try {
+          const response = await fetch(url);
+          if (!response.ok) continue;
+
+          const data = await response.json();
+          const results = data.candidates || [];
+
+          for (const result of results) {
+            if (!result.location) continue;
+
+            addCandidate(
+              candidates,
+              seen,
+              Number(result.location.y),
+              Number(result.location.x),
+              result.address || query,
+              "ArcGIS"
+            );
+          }
+        } catch (error) {
+          console.warn("ArcGIS failed for query:", query, error);
+        }
+      }
+    }
+
+    async function addNominatimCandidates(address, candidates, seen) {
+      const queries = [
+        address,
+        address + ", CA, USA",
+        address + ", Pasadena, CA, USA",
+        address + ", Altadena, CA, USA",
+        address + ", Sierra Madre, CA, USA",
+        address + ", San Gabriel, CA, USA",
+        address + ", Los Angeles County, CA, USA",
+        address + ", Pasadena Unified School District, CA, USA"
+      ];
+
+      for (const query of queries) {
+        let url =
+          "https://nominatim.openstreetmap.org/search" +
+          "?format=json" +
+          "&limit=10" +
+          "&addressdetails=1" +
+          "&countrycodes=us";
+
+        if (districtBounds) {
+          // Nominatim viewbox order: left,top,right,bottom
+          url +=
+            "&viewbox=" +
+            districtBounds.minLng + "," +
+            districtBounds.maxLat + "," +
+            districtBounds.maxLng + "," +
+            districtBounds.minLat;
+        }
+
+        url += "&q=" + encodeURIComponent(query);
+
+        try {
+          const response = await fetch(url, {
+            headers: { Accept: "application/json" }
+          });
+
+          if (!response.ok) continue;
+
+          const results = await response.json();
+          if (!results || results.length === 0) continue;
+
+          for (const result of results) {
+            addCandidate(
+              candidates,
+              seen,
+              Number(result.lat),
+              Number(result.lon),
+              result.display_name || query,
+              "Nominatim"
+            );
+          }
+        } catch (error) {
+          console.warn("Nominatim failed for query:", query, error);
+        }
+      }
+    }
+
+    async function addPhotonCandidates(address, candidates, seen) {
+      const queries = [
+        address,
+        address + ", CA",
+        address + ", Pasadena CA",
+        address + ", Altadena CA",
+        address + ", Sierra Madre CA",
+        address + ", San Gabriel CA"
+      ];
+
+      for (const query of queries) {
+        let url = "https://photon.komoot.io/api/?limit=10&q=" + encodeURIComponent(query);
+
+        if (districtBounds) {
+          const centerLat = (districtBounds.minLat + districtBounds.maxLat) / 2;
+          const centerLng = (districtBounds.minLng + districtBounds.maxLng) / 2;
+          url += "&lat=" + centerLat + "&lon=" + centerLng;
+        }
+
+        try {
+          const response = await fetch(url);
+          if (!response.ok) continue;
+
+          const data = await response.json();
+          const features = data.features || [];
+
+          for (const feature of features) {
+            if (!feature.geometry || !feature.geometry.coordinates) continue;
+
+            const lng = Number(feature.geometry.coordinates[0]);
+            const lat = Number(feature.geometry.coordinates[1]);
+            const props = feature.properties || {};
+
+            const labelParts = [
+              props.name,
+              props.street,
+              props.city,
+              props.state,
+              props.country
+            ].filter(Boolean);
+
+            addCandidate(
+              candidates,
+              seen,
+              lat,
+              lng,
+              labelParts.join(", ") || query,
+              "Photon"
+            );
+          }
+        } catch (error) {
+          console.warn("Photon failed for query:", query, error);
+        }
+      }
+    }
+
+    // =====================================================
+    // MAP DISPLAY
+    // =====================================================
+    function drawSearchPoint(lat, lng, label) {
+      if (userMarker) map.removeLayer(userMarker);
+
+      userMarker = L.marker([lat, lng])
+        .addTo(map)
+        .bindPopup(escapeHtml(label))
+        .openPopup();
+
+      map.setView([lat, lng], 15);
     }
 
     function drawSelectedZone(feature) {
@@ -1198,43 +1393,14 @@
       const isMatch = normalizeSchoolForCompare(csvSchool) === normalizeSchoolForCompare(mapSchool);
       if (isMatch) return "match";
 
+      // If CSV exists and only this level differs, treat it as a review warning,
+      // not a hard failure. This is common near elementary boundary edges.
       if (allResults && allResults.csvHasMatch) {
         const otherLevelsMatch = allResults.otherLevelsMatch(level);
-
-        // If only one level differs, it may be a boundary-edge review item.
-        // But if the mismatch is a known stronger conflict, flag as likely wrong CSV.
-        if (otherLevelsMatch) {
-          if (isLikelyWrongCsv(csvSchool, mapSchool, level)) return "mismatch";
-          return "missing";
-        }
+        if (otherLevelsMatch) return "missing";
       }
 
       return "mismatch";
-    }
-
-    function isLikelyWrongCsv(csvSchool, mapSchool, level) {
-      const csv = normalizeSchoolForCompare(csvSchool);
-      const map = normalizeSchoolForCompare(mapSchool);
-
-      if (!csv || !map || csv === map) return false;
-
-      // Stronger elementary conflicts that should usually be fixed in CSV.
-      // These are not treated as simple map-edge warnings.
-      if (level === "Elementary") {
-        const strongPairs = [
-          ["jacksonelementaryschool", "washingtonacceleratedschool"],
-          ["washingtonacceleratedschool", "jacksonelementaryschool"],
-          ["mckinleyelementaryschool", "longfellowelementaryschool"],
-          ["longfellowelementaryschool", "mckinleyelementaryschool"]
-        ];
-
-        return strongPairs.some(function(pair) {
-          return pair[0] === csv && pair[1] === map;
-        });
-      }
-
-      // Middle or High mismatches are usually more serious.
-      return level === "Middle" || level === "High";
     }
 
     function comparisonLabel(csvSchool, mapSchool, level, allResults) {
@@ -1246,9 +1412,6 @@
       if (isMatch) return "Match";
 
       if (allResults && allResults.csvHasMatch && allResults.otherLevelsMatch(level)) {
-        if (isLikelyWrongCsv(csvSchool, mapSchool, level)) {
-          return "Likely wrong CSV — fix row";
-        }
         return "Review — using CSV";
       }
 
@@ -1329,7 +1492,7 @@
             row("Middle", csvMiddle, geoMiddle) +
             row("High", csvHigh, geoHigh) +
           "</table>" +
-          "<p class='small'>Green = match. Yellow = missing or review. Red = likely wrong CSV or major mismatch. When CSV matches an address range, CSV is the official assignment, but red rows should be corrected or investigated.</p>" +
+          "<p class='small'>Green = match. Yellow = missing or review. Red = major mismatch. When CSV matches an address range, CSV is the official assignment and Map/GeoJSON is a secondary validation check.</p>" +
         "</div>" +
         "<br>" +
         "<span class='small'>" +
@@ -1562,79 +1725,6 @@
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-    }
-
-    function pointInsideAnyPusdZone(lat, lng) {
-      const allZoneFiles = [
-        getZonesForLevel("Elementary"),
-        getZonesForLevel("Middle"),
-        getZonesForLevel("High")
-      ];
-
-      for (const zones of allZoneFiles) {
-        if (!zones || !zones.features) continue;
-
-        for (const feature of zones.features) {
-          if (pointInFeature(lat, lng, feature)) {
-            return true;
-          }
-        }
-      }
-
-      return false;
-    }
-
-    // =====================================================
-    // GEOCODING
-    // =====================================================
-    async function geocodeAddress(address, level) {
-      const query = String(address || "").trim();
-      if (!query) return null;
-
-      const url =
-        "https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates" +
-        "?f=json" +
-        "&maxLocations=5" +
-        "&outFields=Match_addr,Addr_type,Score" +
-        "&countryCode=USA" +
-        "&singleLine=" + encodeURIComponent(query);
-
-      const response = await fetch(url);
-      if (!response.ok) return null;
-
-      const data = await response.json();
-      const candidates = data && data.candidates ? data.candidates : [];
-      if (!candidates.length) return null;
-
-      let bestCandidate = null;
-      let bestScore = -1;
-
-      for (const candidate of candidates) {
-        if (!candidate || !candidate.location) continue;
-
-        const lat = candidate.location.y;
-        const lng = candidate.location.x;
-        const score = Number(candidate.score || 0);
-
-        // Prefer candidates that actually fall inside any uploaded PUSD zone.
-        const insidePusd = pointInsideAnyPusdZone(lat, lng);
-        const adjustedScore = insidePusd ? score + 1000 : score;
-
-        if (adjustedScore > bestScore) {
-          bestScore = adjustedScore;
-          bestCandidate = candidate;
-        }
-      }
-
-      if (!bestCandidate || !bestCandidate.location) return null;
-
-      return {
-        lat: bestCandidate.location.y,
-        lng: bestCandidate.location.x,
-        label: bestCandidate.address || bestCandidate.attributes?.Match_addr || query,
-        source: "ArcGIS",
-        matchQuality: bestCandidate.attributes?.Addr_type || "geocoder"
-      };
     }
 
     // =====================================================
