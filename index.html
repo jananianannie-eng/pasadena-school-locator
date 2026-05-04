@@ -359,17 +359,18 @@
       box.innerHTML = html;
     }
 
-    function escapeHtml(value) {
-      return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
+   function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
     }
 
     function formatDescription(text) {
-      return escapeHtml(text || "No description has been added yet.").replaceAll("\n", "<br>");
+  return escapeHtml(text || "No description has been added yet.")
+    .replace(/\n/g, "<br>");
     }
 
     function makeWebsiteLink(url) {
@@ -385,14 +386,14 @@
     function normalizeAddressText(text) {
       return String(text || "")
         .toLowerCase()
-        .replaceAll("north", "n")
-        .replaceAll("south", "s")
-        .replaceAll("east", "e")
-        .replaceAll("west", "w")
-        .replaceAll("avenue", "ave")
-        .replaceAll("street", "st")
-        .replaceAll("road", "rd")
-        .replaceAll("boulevard", "blvd")
+        .replace(/north/g, "n")
+.replace(/south/g, "s")
+.replace(/east/g, "e")
+.replace(/west/g, "w")
+.replace(/avenue/g, "ave")
+.replace(/street/g, "st")
+.replace(/road/g, "rd")
+.replace(/boulevard/g, "blvd")
         .replace(/[^a-z0-9]+/g, " ")
         .trim();
     }
@@ -508,7 +509,7 @@
 
     function parseCsvRows(csvText) {
       return csvText
-        .replaceAll(String.fromCharCode(13), "")
+        .replace(/\r/g, "")
         .split(String.fromCharCode(10))
         .map(line => line.trim())
         .filter(line => line && !line.startsWith("#"));
