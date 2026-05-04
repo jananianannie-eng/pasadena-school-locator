@@ -1,714 +1,125 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pasadena Zoned School Locator</title>
+<meta charset="UTF-8">
+<title>Pasadena Zoned School Locator</title>
 
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 20px;
-      color: #222;
-      background: #fff;
-    }
-
-    h2 {
-      margin-top: 0;
-    }
-
-    input,
-    select,
-    button {
-      display: block;
-      width: 420px;
-      max-width: 100%;
-      padding: 10px;
-      margin: 10px 0;
-      font-size: 15px;
-      box-sizing: border-box;
-    }
-
-    button {
-      background: #2f6fed;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-weight: bold;
-    }
-
-    button:disabled {
-      background: #999;
-      cursor: not-allowed;
-    }
-
-    #box {
-      margin-top: 15px;
-      padding: 14px;
-      border: 1px solid #ccc;
-      background: #f8f8f8;
-      max-width: 760px;
-      line-height: 1.45;
-    }
-
-    #map {
-      height: 500px;
-      margin-top: 15px;
-      border: 1px solid #ccc;
-    }
-
-    .success {
-      color: #087a28;
-      font-weight: bold;
-    }
-
-    .error {
-      color: #b00020;
-      font-weight: bold;
-    }
-
-    .small {
-      color: #555;
-      font-size: 13px;
-    }
-
-    .school-card {
-      margin-top: 10px;
-      padding: 12px;
-      background: white;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-    }
-
-    .school-card h3 {
-      margin: 0 0 8px 0;
-    }
-
-    .school-card p {
-      margin: 7px 0;
-    }
-
-    .school-card a {
-      color: #2f6fed;
-      font-weight: bold;
-    }
-  </style>
+<style>
+body { font-family: Arial; margin:20px; }
+#map { height:500px; margin-top:15px; }
+button { padding:10px; margin-top:10px; }
+</style>
 </head>
 
 <body>
-  <h2>Pasadena Zoned School Locator</h2>
 
-  <input id="address" placeholder="Enter address, e.g. 7137 N Rosemead Blvd, San Gabriel" />
+<h2>Pasadena Zoned School Locator</h2>
 
-  <select id="level">
-    <option value="High">High School</option>
-    <option value="Middle">Middle School</option>
-    <option value="Elementary">Elementary School</option>
-  </select>
+<input id="address" placeholder="Enter address" style="width:300px;padding:8px;" />
 
-  <button id="findBtn" onclick="findSchool()" disabled>Loading zoning data...</button>
+<select id="level">
+<option value="High">High School</option>
+<option value="Middle">Middle School</option>
+<option value="Elementary">Elementary School</option>
+</select>
 
-  <div id="box">Loading zoning data...</div>
+<br>
+<button onclick="findSchool()">Find Zoned School</button>
 
-  <div id="map"></div>
+<div id="box">Loading zoning data...</div>
+<div id="map"></div>
 
-  <script>
-    // =====================================================
-    // FILES
-    // These files must be in the same GitHub folder as index.html.
-    // =====================================================
+<script>
 
-    const zoneFiles = {
-      High: "./high.json",
-      Middle: "./middle.json",
-      Elementary: "./elementary.json"
-    };
+const zoneFiles = {
+  High: "./high.json",
+  Middle: "./middle.json",
+  Elementary: "./elementary.json"
+};
 
-    // =====================================================
-    // SCHOOL INFORMATION
-    // You can add descriptions/websites here anytime.
-    // =====================================================
+let zones = { High:[], Middle:[], Elementary:[] };
+let map = L.map('map').setView([34.1478,-118.1445],12);
 
-    const schoolInfo = {
-      "Pasadena High School": {
-        description: "PHS offers a variety of curricular and extra-curricular programs.",
-        address: "2925 E Sierra Madre Blvd",
-        phone: "(626) 396-5880",
-        grades: "9-12",
-        website: ""
-      },
-      "John Muir High School": {
-        description: "John Muir High School serves students in grades 9-12.",
-        address: "1905 Lincoln Ave",
-        phone: "(626) 396-5600",
-        grades: "9-12",
-        website: ""
-      },
-      "Marshall Fundamental": {
-        description: "Marshall Fundamental serves students in grades 6-12.",
-        address: "990 N Allen Ave",
-        phone: "(626) 396-5810",
-        grades: "6-12",
-        website: ""
-      },
-      "Blair High School": {
-        description: "Blair serves middle and high school students.",
-        address: "1201 S Marengo Ave",
-        phone: "(626) 396-5820",
-        grades: "6-12",
-        website: ""
-      }
-    };
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-    // =====================================================
-    // GLOBALS
-    // =====================================================
+function escapeHtml(v){
+  return String(v)
+  .replace(/&/g,"&amp;")
+  .replace(/</g,"&lt;")
+  .replace(/>/g,"&gt;");
+}
 
-    const zones = {
-      High: [],
-      Middle: [],
-      Elementary: []
-    };
+async function loadZones(){
+  for (let level in zoneFiles){
+    let res = await fetch(zoneFiles[level]);
+    let data = await res.json();
+    zones[level] = data.features;
 
-    const zoneLayers = {
-      High: null,
-      Middle: null,
-      Elementary: null
-    };
+    L.geoJSON(data).addTo(map);
+  }
+  document.getElementById("box").innerHTML="Ready";
+}
 
-    let map = null;
-    let marker = null;
-    let districtBounds = null;
+function pointInPoly(point, vs){
+  let x=point[0], y=point[1], inside=false;
+  for (let i=0,j=vs.length-1;i<vs.length;j=i++){
+    let xi=vs[i][0], yi=vs[i][1];
+    let xj=vs[j][0], yj=vs[j][1];
+    let intersect=((yi>y)!=(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi)+xi);
+    if(intersect) inside=!inside;
+  }
+  return inside;
+}
 
-    const box = document.getElementById("box");
-    const findBtn = document.getElementById("findBtn");
-
-    // =====================================================
-    // SAFARI-SAFE HELPERS
-    // No replaceAll() is used in this file.
-    // =====================================================
-
-    function escapeHtml(value) {
-      return String(value)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
+function findZone(level,lat,lng){
+  let pt=[lng,lat];
+  for (let f of zones[level]){
+    let coords=f.geometry.coordinates;
+    for (let poly of coords){
+      if(pointInPoly(pt,poly[0])) return f;
     }
+  }
+  return null;
+}
 
-    function showMessage(html) {
-      box.innerHTML = html;
-    }
+async function findSchool(){
+  let addr=document.getElementById("address").value;
 
-    function normalizeSchoolName(name) {
-      return String(name || "")
-        .replace(/\s+/g, " ")
-        .trim();
-    }
+  let url="https://nominatim.openstreetmap.org/search?format=json&q="+encodeURIComponent(addr);
+  let res=await fetch(url);
+  let data=await res.json();
 
-    function normalizeAddressText(text) {
-      return String(text || "")
-        .toLowerCase()
-        .replace(/north/g, "n")
-        .replace(/south/g, "s")
-        .replace(/east/g, "e")
-        .replace(/west/g, "w")
-        .replace(/avenue/g, "ave")
-        .replace(/street/g, "st")
-        .replace(/road/g, "rd")
-        .replace(/boulevard/g, "blvd")
-        .replace(/[^a-z0-9]+/g, " ")
-        .trim();
-    }
+  if(!data.length){
+    document.getElementById("box").innerHTML="Address not found";
+    return;
+  }
 
-    function formatDescription(text) {
-      return escapeHtml(text || "No description has been added yet.").replace(/\n/g, "<br>");
-    }
+  let lat=parseFloat(data[0].lat);
+  let lng=parseFloat(data[0].lon);
 
-    function makeWebsiteLink(url) {
-      if (!url) return "";
-      return (
-        "<p><b>Website:</b> " +
-        "<a href='" + escapeHtml(url) + "' target='_blank' rel='noopener noreferrer'>School website</a>" +
-        "</p>"
-      );
-    }
+  map.setView([lat,lng],15);
+  L.marker([lat,lng]).addTo(map);
 
-    function getSchoolName(properties) {
-      if (!properties) return "Unknown School";
+  let level=document.getElementById("level").value;
+  let zone=findZone(level,lat,lng);
 
-      const rawName =
-        properties.name ||
-        properties.Name ||
-        properties.SCHOOL ||
-        properties.School ||
-        properties.school ||
-        properties.SCHOOLNAME ||
-        properties.SchoolName ||
-        properties.schoolname ||
-        properties.SCHOOL_NAME ||
-        properties.School_Name ||
-        properties.school_name ||
-        properties.ZONE ||
-        properties.Zone ||
-        properties.zone ||
-        properties.DISTRICT ||
-        properties.District ||
-        properties.district ||
-        properties.BOUNDARY ||
-        properties.Boundary ||
-        properties.boundary ||
-        "";
+  if(!zone){
+    document.getElementById("box").innerHTML="No zone found";
+    return;
+  }
 
-      return normalizeSchoolName(rawName || "Unknown School");
-    }
+  let name=zone.properties.name || "School";
 
-    function getSchoolInfo(name) {
-      const cleanName = normalizeSchoolName(name);
+  document.getElementById("box").innerHTML=
+    "<b>"+escapeHtml(name)+"</b><br>"+level+" School";
+}
 
-      if (schoolInfo[cleanName]) {
-        return schoolInfo[cleanName];
-      }
+loadZones();
 
-      const lowerName = cleanName.toLowerCase();
+</script>
 
-      for (const key in schoolInfo) {
-        if (key.toLowerCase() === lowerName) {
-          return schoolInfo[key];
-        }
-      }
-
-      return {
-        description: "",
-        address: "",
-        phone: "",
-        grades: "",
-        website: ""
-      };
-    }
-
-    // =====================================================
-    // MAP
-    // =====================================================
-
-    function initMap() {
-      if (typeof L === "undefined") {
-        showMessage(
-          "<span class='error'>Map library did not load.</span><br>" +
-          "Please check your internet connection or content blocker, then refresh."
-        );
-        return;
-      }
-
-      map = L.map("map").setView([34.1478, -118.1445], 12);
-
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-        attribution: "&copy; OpenStreetMap contributors"
-      }).addTo(map);
-    }
-
-    function styleForLevel(level) {
-      if (level === "High") {
-        return { color: "#2f6fed", weight: 2, fillOpacity: 0.12 };
-      }
-
-      if (level === "Middle") {
-        return { color: "#087a28", weight: 2, fillOpacity: 0.12 };
-      }
-
-      return { color: "#b35c00", weight: 2, fillOpacity: 0.12 };
-    }
-
-    function showOnlyLayer(level) {
-      for (const key in zoneLayers) {
-        if (zoneLayers[key] && map.hasLayer(zoneLayers[key])) {
-          map.removeLayer(zoneLayers[key]);
-        }
-      }
-
-      if (zoneLayers[level]) {
-        zoneLayers[level].addTo(map);
-      }
-    }
-
-    // =====================================================
-    // LOAD GEOJSON
-    // =====================================================
-
-    async function fetchJson(url) {
-      const response = await fetch(url + "?v=" + Date.now(), { cache: "no-store" });
-
-      if (!response.ok) {
-        throw new Error("Could not load " + url);
-      }
-
-      return await response.json();
-    }
-
-    function featuresFromGeoJson(data) {
-      if (!data) return [];
-
-      if (data.type === "FeatureCollection" && Array.isArray(data.features)) {
-        return data.features;
-      }
-
-      if (data.type === "Feature") {
-        return [data];
-      }
-
-      return [];
-    }
-
-    async function loadZones() {
-      try {
-        showMessage("Loading zoning data...");
-
-        for (const level of ["High", "Middle", "Elementary"]) {
-          const data = await fetchJson(zoneFiles[level]);
-          const features = featuresFromGeoJson(data);
-          zones[level] = features;
-
-          zoneLayers[level] = L.geoJSON(data, {
-            style: styleForLevel(level),
-            onEachFeature: function(feature, layer) {
-              const school = getSchoolName(feature.properties);
-              layer.bindPopup("<b>" + escapeHtml(school) + "</b><br>" + escapeHtml(level) + " School Zone");
-            }
-          });
-        }
-
-        districtBounds = calculateDistrictBounds();
-
-        if (districtBounds && map) {
-          map.fitBounds([
-            [districtBounds.minLat, districtBounds.minLng],
-            [districtBounds.maxLat, districtBounds.maxLng]
-          ]);
-        }
-
-        showOnlyLayer("High");
-
-        findBtn.disabled = false;
-        findBtn.textContent = "Find Zoned School";
-        showMessage("<span class='success'>Zoning data loaded.</span><br>Enter an address above.");
-      } catch (error) {
-        findBtn.disabled = true;
-        findBtn.textContent = "Zoning files failed to load";
-
-        showMessage(
-          "<span class='error'>Zoning files failed to load.</span><br><br>" +
-          escapeHtml(error.message || error) +
-          "<br><br>Make sure these files are in the same GitHub folder as index.html:<br>" +
-          "<b>high.json</b><br>" +
-          "<b>middle.json</b><br>" +
-          "<b>elementary.json</b>"
-        );
-      }
-    }
-
-    // =====================================================
-    // GEOMETRY HELPERS
-    // =====================================================
-
-    function pointInRing(point, ring) {
-      const x = point[0];
-      const y = point[1];
-      let inside = false;
-
-      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-        const xi = ring[i][0];
-        const yi = ring[i][1];
-        const xj = ring[j][0];
-        const yj = ring[j][1];
-
-        const intersect =
-          ((yi > y) !== (yj > y)) &&
-          (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi);
-
-        if (intersect) inside = !inside;
-      }
-
-      return inside;
-    }
-
-    function pointInPolygon(point, polygon) {
-      if (!polygon || polygon.length === 0) return false;
-
-      const outerRing = polygon[0];
-
-      if (!outerRing || outerRing.length < 3) return false;
-      if (!pointInRing(point, outerRing)) return false;
-
-      for (let i = 1; i < polygon.length; i++) {
-        const hole = polygon[i];
-
-        if (hole && hole.length >= 3 && pointInRing(point, hole)) {
-          return false;
-        }
-      }
-
-      return true;
-    }
-
-    function getFeaturePolygons(feature) {
-      const geometry = feature.geometry;
-
-      if (!geometry) return [];
-
-      if (geometry.type === "Polygon") {
-        return [geometry.coordinates];
-      }
-
-      if (geometry.type === "MultiPolygon") {
-        return geometry.coordinates;
-      }
-
-      return [];
-    }
-
-    function findFeatureContainingPoint(level, lat, lng) {
-      const point = [lng, lat];
-
-      for (const feature of zones[level]) {
-        const polygons = getFeaturePolygons(feature);
-
-        for (const polygon of polygons) {
-          if (pointInPolygon(point, polygon)) {
-            return feature;
-          }
-        }
-      }
-
-      return null;
-    }
-
-    function calculateDistrictBounds() {
-      let minLng = Infinity;
-      let minLat = Infinity;
-      let maxLng = -Infinity;
-      let maxLat = -Infinity;
-
-      for (const level of ["High", "Middle", "Elementary"]) {
-        for (const feature of zones[level]) {
-          const polygons = getFeaturePolygons(feature);
-
-          for (const polygon of polygons) {
-            for (const ring of polygon) {
-              for (const coordinate of ring) {
-                const lng = coordinate[0];
-                const lat = coordinate[1];
-
-                if (lng < minLng) minLng = lng;
-                if (lat < minLat) minLat = lat;
-                if (lng > maxLng) maxLng = lng;
-                if (lat > maxLat) maxLat = lat;
-              }
-            }
-          }
-        }
-      }
-
-      if (!isFinite(minLng) || !isFinite(minLat) || !isFinite(maxLng) || !isFinite(maxLat)) {
-        return null;
-      }
-
-      const padding = 0.01;
-
-      return {
-        minLng: minLng - padding,
-        minLat: minLat - padding,
-        maxLng: maxLng + padding,
-        maxLat: maxLat + padding
-      };
-    }
-
-    function pointInsideDistrictBounds(lat, lng) {
-      if (!districtBounds) return true;
-
-      return (
-        lng >= districtBounds.minLng &&
-        lng <= districtBounds.maxLng &&
-        lat >= districtBounds.minLat &&
-        lat <= districtBounds.maxLat
-      );
-    }
-
-    // =====================================================
-    // GEOCODING
-    // =====================================================
-
-    async function geocodeAddress(address) {
-      const query = address + ", Pasadena Unified School District, CA";
-      const url =
-        "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" +
-        encodeURIComponent(query);
-
-      const response = await fetch(url, {
-        headers: {
-          "Accept": "application/json"
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error("The address lookup service did not respond.");
-      }
-
-      const results = await response.json();
-
-      if (!results || results.length === 0) {
-        throw new Error("Address not found. Try adding city and state.");
-      }
-
-      return {
-        lat: Number(results[0].lat),
-        lng: Number(results[0].lon),
-        displayName: results[0].display_name || address
-      };
-    }
-
-    // =====================================================
-    // MAIN LOOKUP
-    // =====================================================
-
-    async function findSchool() {
-      const addressInput = document.getElementById("address");
-      const levelInput = document.getElementById("level");
-
-      const address = addressInput.value.trim();
-      const level = levelInput.value;
-
-      if (!address) {
-        showMessage("<span class='error'>Please enter an address.</span>");
-        return;
-      }
-
-      try {
-        findBtn.disabled = true;
-        findBtn.textContent = "Searching...";
-        showMessage("Looking up address...");
-
-        showOnlyLayer(level);
-
-        const location = await geocodeAddress(address);
-
-        if (!isFinite(location.lat) || !isFinite(location.lng)) {
-          throw new Error("Address lookup returned invalid coordinates.");
-        }
-
-        if (!pointInsideDistrictBounds(location.lat, location.lng)) {
-          showMessage(
-            "<span class='error'>This address appears to be outside the loaded Pasadena zoning boundary.</span><br><br>" +
-            escapeHtml(location.displayName)
-          );
-
-          updateMarker(location.lat, location.lng, address);
-          return;
-        }
-
-        const feature = findFeatureContainingPoint(level, location.lat, location.lng);
-
-        updateMarker(location.lat, location.lng, address);
-
-        if (!feature) {
-          showMessage(
-            "<span class='error'>No matching " + escapeHtml(level) + " school zone was found for this address.</span><br><br>" +
-            "<span class='small'>" + escapeHtml(location.displayName) + "</span>"
-          );
-          return;
-        }
-
-        const schoolName = getSchoolName(feature.properties);
-        const info = getSchoolInfo(schoolName);
-
-        const html =
-          "<span class='success'>Zoned school found.</span>" +
-          "<div class='school-card'>" +
-          "<h3>" + escapeHtml(schoolName) + "</h3>" +
-          "<p><b>Level:</b> " + escapeHtml(level) + " School</p>" +
-          "<p><b>Matched address:</b> " + escapeHtml(location.displayName) + "</p>" +
-          "<p><b>Description:</b><br>" + formatDescription(info.description) + "</p>" +
-          (info.address ? "<p><b>School address:</b> " + escapeHtml(info.address) + "</p>" : "") +
-          (info.phone ? "<p><b>Phone:</b> " + escapeHtml(info.phone) + "</p>" : "") +
-          (info.grades ? "<p><b>Grades:</b> " + escapeHtml(info.grades) + "</p>" : "") +
-          makeWebsiteLink(info.website) +
-          "</div>";
-
-        showMessage(html);
-      } catch (error) {
-        showMessage(
-          "<span class='error'>Search failed.</span><br><br>" +
-          escapeHtml(error.message || error)
-        );
-      } finally {
-        findBtn.disabled = false;
-        findBtn.textContent = "Find Zoned School";
-      }
-    }
-
-    function updateMarker(lat, lng, label) {
-      if (!map) return;
-
-      if (marker) {
-        marker.remove();
-      }
-
-      marker = L.marker([lat, lng]).addTo(map);
-      marker.bindPopup(escapeHtml(label)).openPopup();
-      map.setView([lat, lng], 15);
-    }
-
-    // =====================================================
-    // EVENTS
-    // =====================================================
-
-    document.getElementById("level").addEventListener("change", function() {
-      showOnlyLayer(this.value);
-    });
-
-    document.getElementById("address").addEventListener("keydown", function(event) {
-      if (event.key === "Enter" && !findBtn.disabled) {
-        findSchool();
-      }
-    });
-
-    window.addEventListener("error", function(event) {
-      const message = event.message || "Unknown JavaScript error";
-      const line = event.lineno ? " Line: " + event.lineno : "";
-
-      setTimeout(function() {
-        const errorBox = document.getElementById("box");
-        if (errorBox) {
-          errorBox.innerHTML =
-            "<span class='error'>Page error:</span><br>" +
-            escapeHtml(message + line);
-        }
-      }, 300);
-    });
-
-    window.addEventListener("unhandledrejection", function(event) {
-      const message =
-        event.reason && event.reason.message
-          ? event.reason.message
-          : String(event.reason || "Unknown loading error");
-
-      setTimeout(function() {
-        const errorBox = document.getElementById("box");
-        if (errorBox) {
-          errorBox.innerHTML =
-            "<span class='error'>Loading error:</span><br>" +
-            escapeHtml(message);
-        }
-      }, 300);
-    });
-
-    initMap();
-    loadZones();
-  </script>
 </body>
 </html>
